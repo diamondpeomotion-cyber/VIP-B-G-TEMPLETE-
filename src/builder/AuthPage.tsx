@@ -1,12 +1,20 @@
-import React, { useState } from 'react';
-import { Scissors, RefreshCw, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Scissors, RefreshCw, Eye, EyeOff, ArrowLeft, ShieldAlert } from 'lucide-react';
 import { Link, navigate } from '../Root';
 import { api } from './api';
 import { useAuth } from './auth';
+import { usePlatformConfig } from './config';
 import type { OwnerUser, Salon } from './types';
+
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
 
 export default function AuthPage() {
   const { setSession } = useAuth();
+  const config = usePlatformConfig();
   const [mode, setMode] = useState<'login' | 'signup'>(() =>
     new URLSearchParams(window.location.search).get('mode') === 'signup' ? 'signup' : 'login'
   );
@@ -16,6 +24,71 @@ export default function AuthPage() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const [gsiReady, setGsiReady] = useState(false);
+
+  const finishAuth = (data: { user: OwnerUser; salon: Salon | null }) => {
+    setSession(data.user, data.salon);
+    if (data.user.role === 'super_admin' && !data.salon) {
+      navigate('/admin');
+    } else {
+      navigate(data.salon ? '/dashboard' : '/onboarding');
+    }
+  };
+
+  // Load & render the Google Identity Services button when enabled.
+  useEffect(() => {
+    if (!config.googleAuthEnabled || !googleBtnRef.current) return;
+    let cancelled = false;
+
+    const render = () => {
+      if (cancelled || !window.google?.accounts?.id || !googleBtnRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: config.googleClientId,
+        callback: async (response: { credential: string }) => {
+          setError('');
+          setBusy(true);
+          try {
+            const data = await api.post<{ user: OwnerUser; salon: Salon | null }>('/api/auth/google', {
+              idToken: response.credential,
+            });
+            finishAuth(data);
+          } catch (err) {
+            setError((err as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        },
+      });
+      googleBtnRef.current!.innerHTML = '';
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: 'filled_black',
+        size: 'large',
+        width: 320,
+        text: 'continue_with',
+        shape: 'rectangular',
+      });
+      setGsiReady(true);
+    };
+
+    if (window.google?.accounts?.id) {
+      render();
+    } else if (!document.getElementById('gsi-client-script')) {
+      const s = document.createElement('script');
+      s.id = 'gsi-client-script';
+      s.src = 'https://accounts.google.com/gsi/client';
+      s.async = true;
+      s.defer = true;
+      s.onload = render;
+      document.head.appendChild(s);
+    } else {
+      document.getElementById('gsi-client-script')?.addEventListener('load', render);
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.googleAuthEnabled, config.googleClientId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,8 +99,7 @@ export default function AuthPage() {
         mode === 'signup' ? '/api/auth/signup' : '/api/auth/login',
         mode === 'signup' ? { name, email, password } : { email, password }
       );
-      setSession(data.user, data.salon);
-      navigate(data.salon ? '/dashboard' : '/onboarding');
+      finishAuth(data);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -38,6 +110,8 @@ export default function AuthPage() {
   const inputCls =
     'w-full bg-[#0a0a0b] text-sm border border-[#2a2a2d] rounded px-3.5 py-3 text-stone-200 outline-none focus:border-[#c5a059] transition placeholder:text-stone-600';
 
+  const signupBlocked = mode === 'signup' && !config.allowRegistrations;
+
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-[#e5e5e5] font-sans flex flex-col">
       <header className="px-5 h-16 flex items-center justify-between border-b border-[#1c1c1f]">
@@ -45,7 +119,7 @@ export default function AuthPage() {
           <span className="p-1.5 rounded-sm bg-[#c5a059]/10 border border-[#c5a059]/30 text-[#c5a059]">
             <Scissors size={16} />
           </span>
-          <span className="font-serif italic text-xl text-[#c5a059] tracking-tight">Nexora Studio</span>
+          <span className="font-serif italic text-xl text-[#c5a059] tracking-tight">{config.platformName}</span>
         </Link>
         <Link href="/" className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest font-mono text-stone-500 hover:text-white transition">
           <ArrowLeft size={13} /> Home
@@ -59,7 +133,7 @@ export default function AuthPage() {
               {mode === 'signup' ? 'Open your studio online' : 'Welcome back'}
             </h1>
             <p className="text-xs text-stone-500 mt-2 font-mono uppercase tracking-widest">
-              {mode === 'signup' ? 'Your website is one minute away' : 'Sign in to your salon dashboard'}
+              {mode === 'signup' ? 'Your website is one minute away' : 'Sign in to your dashboard'}
             </p>
           </div>
 
@@ -82,6 +156,28 @@ export default function AuthPage() {
                 </button>
               ))}
             </div>
+
+            {signupBlocked && (
+              <p className="mb-4 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-2.5 flex items-start gap-2">
+                <ShieldAlert size={14} className="shrink-0 mt-0.5" />
+                New registrations are currently closed. If you already have an account, please sign in.
+              </p>
+            )}
+
+            {/* Google sign-in */}
+            {config.googleAuthEnabled && !signupBlocked && (
+              <>
+                <div className="flex justify-center">
+                  <div ref={googleBtnRef} className={busy ? 'opacity-50 pointer-events-none' : ''} />
+                </div>
+                {!gsiReady && <p className="text-center text-[10px] font-mono text-stone-600 mt-2">Loading Google sign-in…</p>}
+                <div className="flex items-center gap-3 my-6">
+                  <span className="h-px flex-1 bg-[#2a2a2d]" />
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-stone-600">or with email</span>
+                  <span className="h-px flex-1 bg-[#2a2a2d]" />
+                </div>
+              </>
+            )}
 
             <form onSubmit={submit} className="space-y-4">
               {mode === 'signup' && (
@@ -145,7 +241,7 @@ export default function AuthPage() {
 
               <button
                 type="submit"
-                disabled={busy}
+                disabled={busy || signupBlocked}
                 className="w-full bg-[#c5a059] hover:bg-[#b08c49] disabled:opacity-50 text-black text-xs font-bold uppercase tracking-widest py-3.5 rounded-sm transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 {busy && <RefreshCw size={14} className="animate-spin" />}
@@ -155,7 +251,7 @@ export default function AuthPage() {
           </div>
 
           <p className="text-center text-[11px] text-stone-600 font-mono mt-6 leading-relaxed">
-            Secured with scrypt password hashing<br />and HTTP-only session cookies.
+            Secured with scrypt password hashing, verified Google identity tokens<br />and HTTP-only session cookies.
           </p>
         </div>
       </div>

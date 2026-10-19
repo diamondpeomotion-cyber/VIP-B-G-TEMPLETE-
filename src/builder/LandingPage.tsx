@@ -1,10 +1,11 @@
 import React from 'react';
 import {
   Scissors, Palette, Globe, CalendarDays, Sparkles, Users, ChevronRight,
-  ArrowRight, MonitorSmartphone, Database, ShieldCheck, Eye,
+  ArrowRight, MonitorSmartphone, Database, ShieldCheck, Eye, AlertTriangle,
 } from 'lucide-react';
 import { Link } from '../Root';
 import { useAuth } from './auth';
+import { usePlatformConfig } from './config';
 import { HERO_IMAGES } from './curated';
 
 const FEATURES = [
@@ -70,10 +71,19 @@ const STEPS = [
 
 export default function LandingPage() {
   const { user, salon, loading } = useAuth();
-  const dashHref = salon ? '/dashboard' : '/onboarding';
+  const config = usePlatformConfig();
+  const dashHref = salon ? '/dashboard' : user?.role === 'super_admin' ? '/admin' : '/onboarding';
 
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-[#e5e5e5] font-sans antialiased selection:bg-[#c5a059] selection:text-black">
+      {/* Maintenance banner (set by platform super admin) */}
+      {config.maintenanceMessage && (
+        <div className="bg-amber-500/10 border-b border-amber-500/25 px-5 py-2.5 text-center">
+          <p className="text-xs text-amber-400 font-mono inline-flex items-center gap-2">
+            <AlertTriangle size={13} /> {config.maintenanceMessage}
+          </p>
+        </div>
+      )}
       {/* ---------------- NAV ---------------- */}
       <header className="sticky top-0 z-40 bg-[#0a0a0b]/85 backdrop-blur-md border-b border-[#1c1c1f]">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
@@ -81,7 +91,7 @@ export default function LandingPage() {
             <span className="p-1.5 rounded-sm bg-[#c5a059]/10 border border-[#c5a059]/30 text-[#c5a059]">
               <Scissors size={16} />
             </span>
-            <span className="font-serif italic text-xl text-[#c5a059] tracking-tight">Nexora Studio</span>
+            <span className="font-serif italic text-xl text-[#c5a059] tracking-tight">{config.platformName}</span>
           </Link>
 
           <nav className="flex items-center gap-3 sm:gap-5">
@@ -89,12 +99,22 @@ export default function LandingPage() {
               Product demo
             </Link>
             {!loading && user ? (
-              <Link
-                href={dashHref}
-                className="bg-[#c5a059] hover:bg-[#b08c49] text-black text-[11px] font-bold uppercase tracking-widest px-4 sm:px-5 py-2.5 rounded-sm transition inline-flex items-center gap-1.5"
-              >
-                My dashboard <ArrowRight size={13} />
-              </Link>
+              <>
+                {user.role === 'super_admin' && (
+                  <Link
+                    href="/admin"
+                    className="text-[11px] uppercase tracking-widest font-mono text-[#c5a059] border border-[#c5a059]/30 hover:bg-[#c5a059]/10 px-4 sm:px-5 py-2.5 rounded-sm transition inline-flex items-center gap-1.5"
+                  >
+                    <ShieldCheck size={13} /> Admin
+                  </Link>
+                )}
+                <Link
+                  href={dashHref}
+                  className="bg-[#c5a059] hover:bg-[#b08c49] text-black text-[11px] font-bold uppercase tracking-widest px-4 sm:px-5 py-2.5 rounded-sm transition inline-flex items-center gap-1.5"
+                >
+                  My dashboard <ArrowRight size={13} />
+                </Link>
+              </>
             ) : (
               <>
                 <Link href="/auth" className="text-[11px] uppercase tracking-widest font-mono text-stone-400 hover:text-white transition">
@@ -265,7 +285,7 @@ export default function LandingPage() {
             <span className="font-serif italic text-sm text-[#c5a059]">Nexora White-Label Studio</span>
           </div>
           <p className="text-[11px] font-mono text-stone-600">
-            © {new Date().getFullYear()} Nexora Studio · Crafted for salon owners
+            © {new Date().getFullYear()} {config.platformName} · Crafted for salon owners
           </p>
           <Link href="/demo" className="text-[11px] font-mono text-stone-500 hover:text-[#c5a059] transition">
             SalonOS product demo →

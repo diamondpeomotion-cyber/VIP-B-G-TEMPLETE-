@@ -1,7 +1,53 @@
+export type UserRole = 'owner' | 'super_admin';
+
 export interface OwnerUser {
   id: string;
   name: string;
   email: string;
+  role: UserRole;
+  authProvider: 'password' | 'google';
+}
+
+export type SubscriptionPlan = 'free' | 'pro' | 'premium';
+
+export interface PlanInfo {
+  id: SubscriptionPlan;
+  label: string;
+  status: string;
+  limits: { services: number; staff: number; label: string };
+}
+
+export interface PlatformConfig {
+  baseUrl: string;
+  platformName: string;
+  allowRegistrations: boolean;
+  maintenanceMessage: string;
+  googleAuthEnabled: boolean;
+  googleClientId: string;
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  disabled: boolean;
+  authProvider: string;
+  createdAt: string;
+  salon: { id: string; slug: string; name: string; plan: string; published: boolean } | null;
+}
+
+export interface AdminSalonRow {
+  salon: Salon;
+  owner: { email: string; name: string };
+  counts: { services: number; staff: number; bookings: number };
+}
+
+export interface PlatformSettings {
+  platformName: string;
+  allowRegistrations: boolean;
+  maintenanceMessage: string;
+  defaultPlan: SubscriptionPlan;
 }
 
 export interface Salon {
@@ -29,6 +75,8 @@ export interface Salon {
   published: boolean;
   createdAt: string;
   updatedAt: string;
+  subscriptionPlan: SubscriptionPlan;
+  subscriptionStatus: string;
 }
 
 export interface SalonServiceItem {

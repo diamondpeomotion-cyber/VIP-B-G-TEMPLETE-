@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Scissors, LayoutDashboard, Globe, Sparkles, Users, CalendarDays, Megaphone,
-  Rocket, RefreshCw, LogOut, ExternalLink, Eye, Menu, X,
+  Rocket, RefreshCw, LogOut, ExternalLink, Eye, Menu, X, ShieldCheck,
 } from 'lucide-react';
 import { Link, navigate } from '../../Root';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
-import type { Salon, SalonServiceItem, StaffMember, SiteBooking, SiteUrls } from '../types';
+import type { Salon, SalonServiceItem, StaffMember, SiteBooking, SiteUrls, PlanInfo } from '../types';
 import OverviewPanel from './OverviewPanel';
 import WebsiteEditor from './WebsiteEditor';
 import ServicesEditor from './ServicesEditor';
@@ -20,6 +20,7 @@ export interface DashboardData {
   services: SalonServiceItem[];
   staff: StaffMember[];
   urls: SiteUrls;
+  plan: PlanInfo;
   stats: { totalBookings: number; newBookings: number; upcomingBookings: number };
 }
 
@@ -158,6 +159,14 @@ export default function Dashboard() {
         </nav>
 
         <div className="p-3 border-t border-[#2a2a2d] space-y-1">
+          {user.role === 'super_admin' && (
+            <Link
+              href="/admin"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded text-xs font-mono uppercase tracking-wider text-[#c5a059] hover:bg-[#c5a059]/10 border border-[#c5a059]/20 transition"
+            >
+              <ShieldCheck size={15} /> Super Admin
+            </Link>
+          )}
           <a
             href={previewUrl}
             target="_blank"
@@ -243,7 +252,7 @@ export default function Dashboard() {
         <main className="flex-1 p-4 sm:p-6 max-w-5xl w-full mx-auto space-y-6 pb-24">
           {section === 'overview' && (
             <OverviewPanel
-              data={{ salon, urls, stats }}
+              data={{ salon, urls, stats, plan: data.plan, servicesCount: services.length, staffCount: staff.length }}
               bookings={bookings}
               onNavigate={(s) => setSection(s)}
             />
@@ -252,10 +261,10 @@ export default function Dashboard() {
             <WebsiteEditor salon={salon} onSaved={(s) => { patchSalon(s); showToast('Website content saved.'); }} onError={showToast} />
           )}
           {section === 'services' && (
-            <ServicesEditor services={services} onSaved={(list) => { patchServices(list); showToast('Service menu saved.'); }} onError={showToast} />
+            <ServicesEditor services={services} plan={data.plan} onSaved={(list) => { patchServices(list); showToast('Service menu saved.'); }} onError={showToast} />
           )}
           {section === 'staff' && (
-            <StaffEditor staff={staff} onSaved={(list) => { patchStaff(list); showToast('Team saved.'); }} onError={showToast} />
+            <StaffEditor staff={staff} plan={data.plan} onSaved={(list) => { patchStaff(list); showToast('Team saved.'); }} onError={showToast} />
           )}
           {section === 'bookings' && (
             <BookingsPanel bookings={bookings} onChanged={() => { loadBookings(); load(); }} />
@@ -290,6 +299,14 @@ export default function Dashboard() {
               </button>
             </div>
             <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+              {user.role === 'super_admin' && (
+                <Link
+                  href="/admin"
+                  className="w-full flex items-center gap-3 px-3.5 py-3 rounded text-xs font-mono uppercase tracking-wider text-[#c5a059] border border-[#c5a059]/20 mb-2"
+                >
+                  <ShieldCheck size={15} /> Super Admin
+                </Link>
+              )}
               {SECTIONS.map((s) => (
                 <button
                   key={s.key}

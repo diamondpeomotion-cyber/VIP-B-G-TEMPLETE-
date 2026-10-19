@@ -72,10 +72,28 @@ export function clearSessionCookie(req: Request, res: Response) {
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
+export type UserRole = 'owner' | 'super_admin';
+
 export interface OwnerUser {
   id: string;
   name: string;
   email: string;
+  role: UserRole;
+  authProvider: 'password' | 'google';
+}
+
+/** Emails listed here are automatically granted the super-admin role. */
+export function isAdminEmail(email: string): boolean {
+  const list = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes(email.trim().toLowerCase());
+}
+
+export function effectiveRole(email: string, currentRole?: string): UserRole {
+  if (isAdminEmail(email)) return 'super_admin';
+  return currentRole === 'super_admin' ? 'super_admin' : 'owner';
 }
 
 declare global {
@@ -104,16 +122,24 @@ export function destroySession(token: string) {
 export function findUserBySession(token: string): OwnerUser | null {
   const row = db
     .prepare(
-      `SELECT u.id, u.name, u.email, s.expires_at FROM sessions s
+      `SELECT u.id, u.name, u.email, u.role, u.disabled, u.google_sub, u.password_hash, s.expires_at FROM sessions s
        JOIN users u ON u.id = s.user_id WHERE s.token = ?`
     )
-    .get(token) as { id: string; name: string; email: string; expires_at: number } | undefined;
+    .get(token) as
+    | { id: string; name: string; email: string; role: string; disabled: number; google_sub: string; password_hash: string; expires_at: number }
+    | undefined;
   if (!row) return null;
-  if (row.expires_at < Date.now()) {
+  if (row.expires_at < Date.now() || row.disabled) {
     destroySession(token);
     return null;
   }
-  return { id: row.id, name: row.name, email: row.email };
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: effectiveRole(row.email, row.role),
+    authProvider: row.google_sub && !row.password_hash ? 'google' : 'password',
+  };
 }
 
 /** Attaches req.owner when a valid session cookie is present. */
@@ -130,6 +156,17 @@ export function sessionMiddleware(req: Request, _res: Response, next: NextFuncti
 export function requireOwner(req: Request, res: Response, next: NextFunction) {
   if (!req.owner) {
     return res.status(401).json({ error: 'Authentication required. Please sign in.' });
+  }
+  next();
+}
+
+/** Hard guard — only platform super-admins may pass. */
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.owner) {
+    return res.status(401).json({ error: 'Authentication required. Please sign in.' });
+  }
+  if (req.owner.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Super-admin access required.' });
   }
   next();
 }
@@ -169,27 +206,68 @@ export function rateLimit(limit: number, windowMs: number) {
 
 export function createUser(name: string, email: string, password: string): OwnerUser {
   const id = uid('usr');
-  db.prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)').run(
+  const role = effectiveRole(email);
+  db.prepare('INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)').run(
     id,
     name.trim(),
     email.trim().toLowerCase(),
-    hashPassword(password)
+    hashPassword(password),
+    role
   );
-  return { id, name: name.trim(), email: email.trim().toLowerCase() };
+  return { id, name: name.trim(), email: email.trim().toLowerCase(), role, authProvider: 'password' };
 }
 
-export function findUserByEmail(email: string): (OwnerUser & { password_hash: string }) | null {
+/** Creates a Google-authenticated account (no local password). */
+export function createGoogleUser(name: string, email: string, googleSub: string): OwnerUser {
+  const id = uid('usr');
+  const role = effectiveRole(email);
+  db.prepare(
+    'INSERT INTO users (id, name, email, password_hash, role, google_sub) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, name.trim(), email.trim().toLowerCase(), '', role, googleSub);
+  return { id, name: name.trim(), email: email.trim().toLowerCase(), role, authProvider: 'google' };
+}
+
+export interface UserRecord {
+  id: string;
+  name: string;
+  email: string;
+  password_hash: string;
+  role: string;
+  disabled: number;
+  google_sub: string;
+}
+
+export function findUserRecordByEmail(email: string): UserRecord | null {
   const row = db
-    .prepare('SELECT id, name, email, password_hash FROM users WHERE email = ?')
-    .get(email.trim().toLowerCase()) as
-    | { id: string; name: string; email: string; password_hash: string }
-    | undefined;
+    .prepare('SELECT id, name, email, password_hash, role, disabled, google_sub FROM users WHERE email = ?')
+    .get(email.trim().toLowerCase()) as UserRecord | undefined;
   return row || null;
+}
+
+export function findUserByGoogleSub(sub: string): UserRecord | null {
+  const row = db
+    .prepare('SELECT id, name, email, password_hash, role, disabled, google_sub FROM users WHERE google_sub = ?')
+    .get(sub) as UserRecord | undefined;
+  return row || null;
+}
+
+export function linkGoogleAccount(userId: string, sub: string) {
+  db.prepare('UPDATE users SET google_sub = ? WHERE id = ?').run(sub, userId);
+}
+
+export function toOwnerUser(row: UserRecord & { password_hash?: string }): OwnerUser {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: effectiveRole(row.email, row.role),
+    authProvider: row.google_sub && !row.password_hash ? 'google' : 'password',
+  };
 }
 
 export function findUserById(id: string): OwnerUser | null {
-  const row = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(id) as
-    | OwnerUser
-    | undefined;
-  return row || null;
+  const row = db
+    .prepare('SELECT id, name, email, role, google_sub, password_hash FROM users WHERE id = ?')
+    .get(id) as (UserRecord & { password_hash: string }) | undefined;
+  return row ? toOwnerUser(row) : null;
 }

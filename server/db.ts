@@ -24,6 +24,14 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.pragma('busy_timeout = 5000');
 
+/** Idempotent column migration (SQLite lacks ADD COLUMN IF NOT EXISTS). */
+function ensureColumn(table: string, column: string, definition: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Schema (idempotent)
 // ---------------------------------------------------------------------------
@@ -115,7 +123,72 @@ CREATE TABLE IF NOT EXISTS salon_bookings (
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_bookings_salon ON salon_bookings(salon_id);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
+);
 `);
+
+// ---------------------------------------------------------------------------
+// RBAC + subscription migrations (idempotent)
+// ---------------------------------------------------------------------------
+ensureColumn('users', 'role', "TEXT NOT NULL DEFAULT 'owner'");        // 'owner' | 'super_admin'
+ensureColumn('users', 'disabled', 'INTEGER NOT NULL DEFAULT 0');        // admin kill-switch
+ensureColumn('users', 'google_sub', "TEXT NOT NULL DEFAULT ''");        // linked Google subject id
+ensureColumn('salons', 'subscription_plan', "TEXT NOT NULL DEFAULT 'free'");     // free | pro | premium
+ensureColumn('salons', 'subscription_status', "TEXT NOT NULL DEFAULT 'active'"); // active | trialing | past_due | cancelled
+
+/** Per-plan content caps enforced on the backend (and surfaced in the UI). */
+export const PLANS = ['free', 'pro', 'premium'] as const;
+export type SubscriptionPlan = (typeof PLANS)[number];
+
+export const PLAN_LIMITS: Record<SubscriptionPlan, { services: number; staff: number; label: string }> = {
+  free: { services: 10, staff: 5, label: 'Free' },
+  pro: { services: 50, staff: 20, label: 'Pro' },
+  premium: { services: 100, staff: 50, label: 'Premium' },
+};
+
+export function normalizePlan(value: string): SubscriptionPlan {
+  return (PLANS as readonly string[]).includes(value) ? (value as SubscriptionPlan) : 'free';
+}
+
+// ---------------------------------------------------------------------------
+// Platform settings
+// ---------------------------------------------------------------------------
+export interface PlatformSettings {
+  platformName: string;
+  allowRegistrations: boolean;
+  maintenanceMessage: string;
+  defaultPlan: SubscriptionPlan;
+}
+
+const SETTING_DEFAULTS: Record<string, string> = {
+  platform_name: 'Nexora White-Label Studio',
+  allow_registrations: '1',
+  maintenance_message: '',
+  default_plan: 'free',
+};
+
+export function getSettings(): PlatformSettings {
+  const rows = db.prepare('SELECT key, value FROM settings').all() as Array<{ key: string; value: string }>;
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  const get = (k: string) => map.get(k) ?? SETTING_DEFAULTS[k] ?? '';
+  return {
+    platformName: get('platform_name'),
+    allowRegistrations: get('allow_registrations') !== '0',
+    maintenanceMessage: get('maintenance_message'),
+    defaultPlan: normalizePlan(get('default_plan')),
+  };
+}
+
+export function updateSettings(patch: Partial<Record<'platform_name' | 'allow_registrations' | 'maintenance_message' | 'default_plan', string>>) {
+  const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+  const tx = db.transaction((entries: Array<[string, string]>) => {
+    for (const [k, v] of entries) upsert.run(k, v);
+  });
+  tx(Object.entries(patch));
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -150,6 +223,8 @@ export interface DbSalon {
   published: number;
   created_at: string;
   updated_at: string;
+  subscription_plan: string;
+  subscription_status: string;
 }
 
 /** Shape returned to the client — camelCase, no internal columns. */
@@ -179,6 +254,8 @@ export function toPublicSalon(row: DbSalon) {
     published: !!row.published,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    subscriptionPlan: normalizePlan(row.subscription_plan || 'free'),
+    subscriptionStatus: row.subscription_status || 'active',
   };
 }
 

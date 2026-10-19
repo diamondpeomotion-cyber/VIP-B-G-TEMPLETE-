@@ -1,6 +1,6 @@
 import React from 'react';
-import { CalendarDays, Globe, Sparkles, Users, Rocket, Copy, CheckCircle2, TrendingUp } from 'lucide-react';
-import type { Salon, SiteUrls, SiteBooking } from '../types';
+import { CalendarDays, Globe, Sparkles, Users, Rocket, Copy, CheckCircle2, TrendingUp, CreditCard } from 'lucide-react';
+import type { Salon, SiteUrls, SiteBooking, PlanInfo } from '../types';
 import { Card, GhostButton, Badge, PrimaryButton } from '../fields';
 import type { SectionKey } from './Dashboard';
 
@@ -9,11 +9,18 @@ export default function OverviewPanel({
   bookings,
   onNavigate,
 }: {
-  data: { salon: Salon; urls: SiteUrls; stats: { totalBookings: number; newBookings: number; upcomingBookings: number } };
+  data: {
+    salon: Salon;
+    urls: SiteUrls;
+    plan: PlanInfo;
+    servicesCount: number;
+    staffCount: number;
+    stats: { totalBookings: number; newBookings: number; upcomingBookings: number };
+  };
   bookings: SiteBooking[];
   onNavigate: (s: SectionKey) => void;
 }) {
-  const { salon, urls, stats } = data;
+  const { salon, urls, stats, plan, servicesCount, staffCount } = data;
   const [copied, setCopied] = React.useState(false);
   const liveUrl = urls.subdomainUrl || urls.pathUrl;
 
@@ -29,7 +36,7 @@ export default function OverviewPanel({
     { label: 'Total bookings', value: stats.totalBookings, icon: <CalendarDays size={16} className="text-stone-500" /> },
     { label: 'New requests', value: stats.newBookings, icon: <TrendingUp size={16} className="text-[#c5a059]" />, highlight: stats.newBookings > 0 },
     { label: 'Upcoming visits', value: stats.upcomingBookings, icon: <Users size={16} className="text-stone-500" /> },
-    { label: 'Services live', value: undefined, icon: <Sparkles size={16} className="text-stone-500" /> },
+    { label: 'Services live', value: servicesCount, icon: <Sparkles size={16} className="text-stone-500" /> },
   ];
 
   return (
@@ -78,6 +85,36 @@ export default function OverviewPanel({
           </div>
         ))}
       </div>
+
+      {/* Subscription & usage */}
+      <Card
+        title="Subscription & usage"
+        subtitle="Your plan controls how many services and team members you can publish."
+        badge={<Badge tone={plan.id === 'free' ? 'stone' : 'gold'}><CreditCard size={10} /> {plan.label} plan{plan.status !== 'active' ? ` · ${plan.status}` : ''}</Badge>}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          {[
+            { label: 'Services', used: servicesCount, cap: plan.limits.services, section: 'services' as SectionKey },
+            { label: 'Team members', used: staffCount, cap: plan.limits.staff, section: 'staff' as SectionKey },
+          ].map((u) => {
+            const pct = Math.min(100, Math.round((u.used / u.cap) * 100));
+            return (
+              <button key={u.label} onClick={() => onNavigate(u.section)} className="text-left bg-[#0a0a0b] border border-[#2a2a2d] hover:border-[#c5a059]/40 rounded-lg p-4 transition cursor-pointer">
+                <div className="flex justify-between text-xs mb-1.5">
+                  <span className="font-mono uppercase tracking-wider text-stone-300">{u.label}</span>
+                  <span className={`font-mono ${pct >= 100 ? 'text-red-400' : 'text-stone-500'}`}>{u.used} / {u.cap}</span>
+                </div>
+                <div className="h-1.5 bg-stone-900 rounded-full overflow-hidden">
+                  <div className={`${pct >= 100 ? 'bg-red-500' : 'bg-[#c5a059]'} h-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                </div>
+                {pct >= 100 && (
+                  <p className="text-[10px] text-red-400 mt-2 font-mono">Limit reached — ask an admin to upgrade your plan.</p>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
 
       {/* Getting started / quick actions */}
       <Card title="Grow your presence" subtitle="The essentials of running your salon online.">

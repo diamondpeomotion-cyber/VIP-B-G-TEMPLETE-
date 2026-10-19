@@ -5,6 +5,8 @@ import OnboardingWizard from './builder/OnboardingWizard';
 import Dashboard from './builder/dashboard/Dashboard';
 import PublicSite from './builder/PublicSite';
 import { AuthProvider } from './builder/auth';
+import { PlatformConfigProvider } from './builder/config';
+import AdminDashboard from './builder/admin/AdminDashboard';
 
 // Legacy SalonOS demo is heavy (charts, motion) — load it only when visited.
 const LegacySalonOSApp = lazy(() => import('./App'));
@@ -112,14 +114,21 @@ function Router() {
     return <Dashboard />;
   }
 
+  // Super-admin platform console (role-guarded both client & server side).
+  if (path === '/admin' || path.startsWith('/admin/')) {
+    return <AdminDashboard />;
+  }
+
   // 5) Marketing landing page (also catches unknown routes).
   return <LandingPage />;
 }
 
 export default function Root() {
   return (
-    <AuthProvider>
-      <Router />
-    </AuthProvider>
+    <PlatformConfigProvider>
+      <AuthProvider>
+        <Router />
+      </AuthProvider>
+    </PlatformConfigProvider>
   );
 }

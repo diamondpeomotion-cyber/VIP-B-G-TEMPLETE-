@@ -7,18 +7,26 @@
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import { OAuth2Client } from 'google-auth-library';
 import {
   db, uid, getSalonBySlug, getSalonByUserId, getServicesForSalon, getStaffForSalon,
   getBookingsForSalon, toPublicSalon, toPublicService, toPublicStaff, toPublicBooking,
-  DbSalon,
+  DbSalon, PLAN_LIMITS, normalizePlan, getSettings,
 } from './db';
 import {
-  createUser, findUserByEmail, createSession, destroySession, parseCookies,
-  setSessionCookie, clearSessionCookie, requireOwner, rateLimit, verifyPassword,
-  SESSION_COOKIE,
+  createUser, createGoogleUser, findUserRecordByEmail, findUserByGoogleSub, linkGoogleAccount,
+  createSession, destroySession, parseCookies, setSessionCookie, clearSessionCookie,
+  requireOwner, rateLimit, verifyPassword, toOwnerUser, SESSION_COOKIE,
 } from './auth';
 
 export const builderRouter = Router();
+
+// ---------------------------------------------------------------------------
+// Google Identity Services
+// ---------------------------------------------------------------------------
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+export const GOOGLE_ENABLED = !!GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('MY_');
+const googleClient = GOOGLE_ENABLED ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 // ---------------------------------------------------------------------------
 // Validation helpers
@@ -94,6 +102,10 @@ function siteUrls(req: Request, slug: string) {
 const authLimiter = rateLimit(20, 10 * 60 * 1000); // 20 attempts / 10 min / IP
 
 builderRouter.post('/api/auth/signup', authLimiter, (req, res) => {
+  if (!getSettings().allowRegistrations) {
+    return bad(res, 403, 'New registrations are currently closed by the platform administrator.');
+  }
+
   const name = asString(req.body?.name, 100);
   const email = asString(req.body?.email, 200);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -102,7 +114,7 @@ builderRouter.post('/api/auth/signup', authLimiter, (req, res) => {
   if (!EMAIL_RE.test(email)) return bad(res, 400, 'Please enter a valid email address.');
   if (password.length < 8) return bad(res, 400, 'Password must be at least 8 characters long.');
 
-  if (findUserByEmail(email)) {
+  if (findUserRecordByEmail(email)) {
     return bad(res, 409, 'An account with this email already exists. Try signing in instead.');
   }
 
@@ -117,15 +129,76 @@ builderRouter.post('/api/auth/login', authLimiter, (req, res) => {
   const email = asString(req.body?.email, 200);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
-  const row = findUserByEmail(email);
-  if (!row || !verifyPassword(password, row.password_hash)) {
+  const row = findUserRecordByEmail(email);
+  if (!row || !row.password_hash || !verifyPassword(password, row.password_hash)) {
+    if (row && !row.password_hash && row.google_sub) {
+      return bad(res, 401, 'This account uses Google sign-in. Please continue with Google below.');
+    }
     return bad(res, 401, 'Incorrect email or password.');
+  }
+  if (row.disabled) {
+    return bad(res, 403, 'This account has been disabled by the platform administrator.');
   }
 
   const token = createSession(row.id);
   setSessionCookie(req, res, token);
   const salon = getSalonByUserId(row.id);
-  res.json({ user: { id: row.id, name: row.name, email: row.email }, salon: salon ? toPublicSalon(salon) : null });
+  res.json({ user: toOwnerUser(row), salon: salon ? toPublicSalon(salon) : null });
+});
+
+// Google One-Tap / GSI button sign-in. The client obtains a Google ID token
+// and we verify it server-side against Google's public keys via the
+// verifier library — same security as redirect OAuth, simpler SPA flow.
+builderRouter.post('/api/auth/google', authLimiter, async (req, res) => {
+  if (!googleClient) {
+    return bad(res, 503, 'Google sign-in is not configured on this deployment.');
+  }
+  const idToken = asString(req.body?.idToken, 4096);
+  if (!idToken) return bad(res, 400, 'Missing Google identity token.');
+
+  let payload: { sub?: string; email?: string; email_verified?: boolean; name?: string } | undefined;
+  try {
+    const ticket = await googleClient.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
+    payload = ticket.getPayload();
+  } catch {
+    return bad(res, 401, 'Google token verification failed. Please try again.');
+  }
+
+  if (!payload?.sub || !payload.email) {
+    return bad(res, 401, 'Google account did not provide a verified identity.');
+  }
+  if (!payload.email_verified) {
+    return bad(res, 401, 'Your Google account email is not verified.');
+  }
+
+  // Find by Google subject first, then by verified email (account linking).
+  let record = findUserByGoogleSub(payload.sub);
+  if (!record) {
+    const byEmail = findUserRecordByEmail(payload.email);
+    if (byEmail) {
+      // Email parity with a verified Google identity — link the accounts.
+      linkGoogleAccount(byEmail.id, payload.sub);
+      record = { ...byEmail, google_sub: payload.sub };
+    }
+  }
+  if (!record) {
+    if (!getSettings().allowRegistrations) {
+      return bad(res, 403, 'New registrations are currently closed by the platform administrator.');
+    }
+    const created = createGoogleUser(payload.name || payload.email.split('@')[0], payload.email, payload.sub);
+    record = {
+      id: created.id, name: created.name, email: created.email,
+      password_hash: '', role: created.role, disabled: 0, google_sub: payload.sub,
+    };
+  }
+  if (record.disabled) {
+    return bad(res, 403, 'This account has been disabled by the platform administrator.');
+  }
+
+  const token = createSession(record.id);
+  setSessionCookie(req, res, token);
+  const salon = getSalonByUserId(record.id);
+  res.json({ user: toOwnerUser(record), salon: salon ? toPublicSalon(salon) : null });
 });
 
 builderRouter.post('/api/auth/logout', (req, res) => {
@@ -174,10 +247,11 @@ builderRouter.post('/api/salon', requireOwner, (req, res) => {
   if (getSalonBySlug(slug)) return bad(res, 409, 'This address is already taken. Please pick another one.');
 
   const id = uid('sal');
+  const defaultPlan = getSettings().defaultPlan;
   db.prepare(`
-    INSERT INTO salons (id, user_id, slug, name, tagline, category, onboarding_step)
-    VALUES (?, ?, ?, ?, ?, ?, 1)
-  `).run(id, req.owner!.id, slug, name, asString(req.body?.tagline, 200), asString(req.body?.category, 30) || 'BEAUTY');
+    INSERT INTO salons (id, user_id, slug, name, tagline, category, onboarding_step, subscription_plan)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+  `).run(id, req.owner!.id, slug, name, asString(req.body?.tagline, 200), asString(req.body?.category, 30) || 'BEAUTY', defaultPlan);
 
   const salon = getSalonBySlug(slug)!;
   res.status(201).json({ salon: toPublicSalon(salon), urls: siteUrls(req, slug) });
@@ -188,11 +262,14 @@ builderRouter.get('/api/salon/mine', requireOwner, (req, res) => {
   if (!salon) return;
 
   const bookings = getBookingsForSalon(salon.id);
+  const plan = normalizePlan(salon.subscription_plan);
+  const settings = getSettings();
   res.json({
     salon: toPublicSalon(salon),
     services: getServicesForSalon(salon.id).map(toPublicService),
     staff: getStaffForSalon(salon.id).map(toPublicStaff),
     urls: siteUrls(req, salon.slug),
+    plan: { id: plan, label: PLAN_LIMITS[plan].label, status: salon.subscription_status, limits: PLAN_LIMITS[plan] },
     stats: {
       totalBookings: bookings.length,
       newBookings: bookings.filter((b) => b.status === 'new').length,
@@ -200,6 +277,7 @@ builderRouter.get('/api/salon/mine', requireOwner, (req, res) => {
         (b) => b.status !== 'cancelled' && b.date >= new Date().toISOString().slice(0, 10)
       ).length,
     },
+    settings: { platformName: settings.platformName },
   });
 });
 
@@ -300,8 +378,16 @@ function sanitizeService(input: any, index: number) {
 builderRouter.post('/api/salon/mine/services', requireOwner, (req, res) => {
   const salon = getOwnerSalon(req, res);
   if (!salon) return;
+  const plan = normalizePlan(salon.subscription_plan);
+  const cap = PLAN_LIMITS[plan].services;
   const count = getServicesForSalon(salon.id).length;
-  if (count >= 100) return bad(res, 400, 'You can add up to 100 services.');
+  if (count >= cap) {
+    return bad(
+      res,
+      402,
+      `Your ${PLAN_LIMITS[plan].label} plan allows up to ${cap} services. Remove some or ask the platform admin to upgrade your plan.`
+    );
+  }
   const clean = sanitizeService(req.body, count);
   if (!clean) return bad(res, 400, 'Service name is required.');
   const id = uid('svc');
@@ -343,7 +429,16 @@ builderRouter.delete('/api/salon/mine/services/:id', requireOwner, (req, res) =>
 builderRouter.put('/api/salon/mine/services', requireOwner, (req, res) => {
   const salon = getOwnerSalon(req, res);
   if (!salon) return;
-  const items = Array.isArray(req.body?.services) ? req.body.services.slice(0, 100) : [];
+  const plan = normalizePlan(salon.subscription_plan);
+  const cap = PLAN_LIMITS[plan].services;
+  const items = Array.isArray(req.body?.services) ? req.body.services : [];
+  if (items.length > cap) {
+    return bad(
+      res,
+      402,
+      `Your ${PLAN_LIMITS[plan].label} plan allows up to ${cap} services (you sent ${items.length}). Upgrade to add more.`
+    );
+  }
   const cleaned = items.map((it: any, i: number) => ({ raw: it, clean: sanitizeService(it, i) }));
   if (cleaned.some((c: any) => !c.clean)) return bad(res, 400, 'Every service needs a name.');
 
@@ -398,8 +493,16 @@ function sanitizeStaff(input: any, index: number) {
 builderRouter.post('/api/salon/mine/staff', requireOwner, (req, res) => {
   const salon = getOwnerSalon(req, res);
   if (!salon) return;
+  const plan = normalizePlan(salon.subscription_plan);
+  const cap = PLAN_LIMITS[plan].staff;
   const count = getStaffForSalon(salon.id).length;
-  if (count >= 50) return bad(res, 400, 'You can add up to 50 team members.');
+  if (count >= cap) {
+    return bad(
+      res,
+      402,
+      `Your ${PLAN_LIMITS[plan].label} plan allows up to ${cap} team members. Ask the platform admin to upgrade your plan.`
+    );
+  }
   const clean = sanitizeStaff(req.body, count);
   if (!clean) return bad(res, 400, 'Team member name is required.');
   const id = uid('stf');
@@ -443,7 +546,16 @@ builderRouter.delete('/api/salon/mine/staff/:id', requireOwner, (req, res) => {
 builderRouter.put('/api/salon/mine/staff', requireOwner, (req, res) => {
   const salon = getOwnerSalon(req, res);
   if (!salon) return;
-  const items = Array.isArray(req.body?.staff) ? req.body.staff.slice(0, 50) : [];
+  const plan = normalizePlan(salon.subscription_plan);
+  const cap = PLAN_LIMITS[plan].staff;
+  const items = Array.isArray(req.body?.staff) ? req.body.staff : [];
+  if (items.length > cap) {
+    return bad(
+      res,
+      402,
+      `Your ${PLAN_LIMITS[plan].label} plan allows up to ${cap} team members (you sent ${items.length}). Upgrade to add more.`
+    );
+  }
   const cleaned = items.map((it: any, i: number) => ({ raw: it, clean: sanitizeStaff(it, i) }));
   if (cleaned.some((c: any) => !c.clean)) return bad(res, 400, 'Every team member needs a name.');
 
@@ -619,7 +731,15 @@ builderRouter.post('/api/site/:slug/bookings', bookingLimiter, (req, res) => {
 });
 
 // Runtime config for the client (base URL so dashboards can display the
-// correct live addresses for each deployment).
+// correct live addresses for each deployment, plus public platform settings).
 builderRouter.get('/api/config', (req, res) => {
-  res.json({ baseUrl: siteUrls(req, 'placeholder').base });
+  const settings = getSettings();
+  res.json({
+    baseUrl: siteUrls(req, 'placeholder').base,
+    platformName: settings.platformName,
+    allowRegistrations: settings.allowRegistrations,
+    maintenanceMessage: settings.maintenanceMessage,
+    googleAuthEnabled: GOOGLE_ENABLED,
+    googleClientId: GOOGLE_ENABLED ? GOOGLE_CLIENT_ID : '',
+  });
 });

@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 
 import { sessionMiddleware } from './server/auth';
 import { builderRouter } from './server/builder';
+import { adminRouter } from './server/admin';
 import { legacyRouter, startLegacyRefundDaemon } from './server/legacy';
 import { aiRouter } from './server/ai';
 
@@ -34,6 +35,7 @@ app.use(sessionMiddleware);
 // API routers
 // ---------------------------------------------------------------------------
 app.use(builderRouter);   // White-label builder: auth, salons, publish, public sites
+app.use(adminRouter);     // Super-admin platform management (RBAC-guarded)
 app.use(aiRouter);        // Gemini AI consultant & marketing (demo + white-label)
 app.use(legacyRouter);    // Original SalonOS demo experience served at /demo
 
