@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local SQLite database (production data lives on a mounted volume)
+data/
+*.db
+*.db-shm
+*.db-wal
