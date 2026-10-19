@@ -1,6 +1,8 @@
 {
-  "name": "Nexora SalonOS",
-  "description": "Next-generation salon management and scheduling SaaS featuring role-based dashboards, multi-tenancy controls, interactive online booking, Razorpay simulator, and server-side Gemini AI business consultants.",
+  "name": "Nexora White-Label Salon Studio",
+  "description": "White-label salon website builder where every salon owner onboards, customizes name/logo/hero/colors/services/staff/contact/content, previews and publishes their own website at a unique URL with isolated data, online booking, and server-side Gemini AI consultants.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
