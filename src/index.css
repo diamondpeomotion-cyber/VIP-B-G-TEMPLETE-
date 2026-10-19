@@ -41,6 +41,142 @@
   animation: pulseBorder 2s ease-in-out infinite;
 }
 
+/* ------------------------------------------------------------------ */
+/* Action button system — semantic classes wired across the app via      */
+/* fields.tsx (PrimaryButton → .primary-action, etc.). Layout/spacing   */
+/* stays in JSX; color, state and focus treatment lives here.           */
+/* ------------------------------------------------------------------ */
+.primary-action {
+  background: var(--primary);
+  color: #000;
+  border: 1px solid transparent;
+}
+.primary-action:hover:not(:disabled) {
+  background: #b08c49;
+}
+.primary-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.secondary-action {
+  background: rgba(197, 160, 89, 0.12);
+  color: var(--primary);
+  border: 1px solid rgba(197, 160, 89, 0.35);
+}
+.secondary-action:hover:not(:disabled) {
+  background: rgba(197, 160, 89, 0.22);
+  border-color: rgba(197, 160, 89, 0.6);
+}
+.secondary-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ghost-action {
+  background: transparent;
+  color: #d6d3d1;
+  border: 1px solid #2a2a2d;
+}
+.ghost-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: #52525b;
+  color: #fff;
+}
+.ghost-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.danger-action {
+  background: transparent;
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.danger-action:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+.danger-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.primary-action:focus-visible,
+.secondary-action:focus-visible,
+.ghost-action:focus-visible,
+.danger-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Toggle switch — accessible switch control (role="switch"), e.g. the  */
+/* per-specialist "Accepting online bookings" control. State is driven   */
+/* by aria-checked so no extra JS classes are needed.                   */
+/* ------------------------------------------------------------------ */
+.toggle-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  border-radius: 9999px;
+  background: #2a2a2d;
+  border: 1px solid #3f3f46;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  padding: 0;
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #a1a1aa;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.toggle-switch[aria-checked='true'] {
+  background: rgba(197, 160, 89, 0.25);
+  border-color: var(--primary);
+}
+.toggle-switch[aria-checked='true']::after {
+  transform: translateX(18px);
+  background: var(--primary);
+}
+.toggle-switch:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+.toggle-switch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.toggle-switch:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.toggle-switch.toggle-sm {
+  width: 34px;
+  height: 20px;
+}
+.toggle-switch.toggle-sm::after {
+  width: 14px;
+  height: 14px;
+}
+.toggle-switch.toggle-sm[aria-checked='true']::after {
+  transform: translateX(14px);
+}
+
+/* Invalid form controls (client-side validation states). */
+.input-error {
+  border-color: rgba(239, 68, 68, 0.6) !important;
+}
+.input-error:focus {
+  border-color: #ef4444 !important;
+}
+
 /* Scrollbar tuning */
 ::-webkit-scrollbar {
   width: 6px;

@@ -18,6 +18,7 @@ import {
   createSession, destroySession, parseCookies, setSessionCookie, clearSessionCookie,
   requireOwner, rateLimit, verifyPassword, toOwnerUser, SESSION_COOKIE,
 } from './auth';
+import { getAvailability, suggestAlternatives, validateBookingDate } from './availability';
 
 export const builderRouter = Router();
 
@@ -486,6 +487,10 @@ function sanitizeStaff(input: any, index: number) {
     specialties,
     bio: asString(input?.bio, 1000),
     photo_url: asString(input?.photoUrl ?? input?.photo_url, 2083),
+    // Online-booking toggle — an explicit camelCase value always wins (the
+    // single-update route merges the DB row, which carries snake_case).
+    // Defaults to ON when omitted (back-compat).
+    accepting_bookings: input?.acceptingBookings === false || (input?.acceptingBookings === undefined && input?.accepting_bookings === 0) ? 0 : 1,
     sort_order: index,
   };
 }
@@ -507,9 +512,9 @@ builderRouter.post('/api/salon/mine/staff', requireOwner, (req, res) => {
   if (!clean) return bad(res, 400, 'Team member name is required.');
   const id = uid('stf');
   db.prepare(
-    `INSERT INTO salon_staff (id, salon_id, name, role, specialties, bio, photo_url, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, salon.id, clean.name, clean.role, clean.specialties, clean.bio, clean.photo_url, clean.sort_order);
+    `INSERT INTO salon_staff (id, salon_id, name, role, specialties, bio, photo_url, accepting_bookings, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, salon.id, clean.name, clean.role, clean.specialties, clean.bio, clean.photo_url, clean.accepting_bookings, clean.sort_order);
   const row = db.prepare('SELECT * FROM salon_staff WHERE id = ?').get(id) as any;
   res.status(201).json({ staff: toPublicStaff(row) });
 });
@@ -527,8 +532,8 @@ builderRouter.put('/api/salon/mine/staff/:id', requireOwner, (req, res) => {
   );
   if (!clean) return bad(res, 400, 'Team member name is required.');
   db.prepare(
-    `UPDATE salon_staff SET name = ?, role = ?, specialties = ?, bio = ?, photo_url = ? WHERE id = ?`
-  ).run(clean.name, clean.role, clean.specialties, clean.bio, clean.photo_url, req.params.id);
+    `UPDATE salon_staff SET name = ?, role = ?, specialties = ?, bio = ?, photo_url = ?, accepting_bookings = ? WHERE id = ?`
+  ).run(clean.name, clean.role, clean.specialties, clean.bio, clean.photo_url, clean.accepting_bookings, req.params.id);
   const row = db.prepare('SELECT * FROM salon_staff WHERE id = ?').get(req.params.id) as any;
   res.json({ staff: toPublicStaff(row) });
 });
@@ -564,15 +569,15 @@ builderRouter.put('/api/salon/mine/staff', requireOwner, (req, res) => {
     for (const { raw, clean } of cleaned) {
       if (raw.id && db.prepare('SELECT 1 FROM salon_staff WHERE id = ? AND salon_id = ?').get(raw.id, salon.id)) {
         db.prepare(
-          `UPDATE salon_staff SET name = ?, role = ?, specialties = ?, bio = ?, photo_url = ?, sort_order = ? WHERE id = ?`
-        ).run(clean!.name, clean!.role, clean!.specialties, clean!.bio, clean!.photo_url, clean!.sort_order, raw.id);
+          `UPDATE salon_staff SET name = ?, role = ?, specialties = ?, bio = ?, photo_url = ?, accepting_bookings = ?, sort_order = ? WHERE id = ?`
+        ).run(clean!.name, clean!.role, clean!.specialties, clean!.bio, clean!.photo_url, clean!.accepting_bookings, clean!.sort_order, raw.id);
         keepIds.push(raw.id);
       } else {
         const id = uid('stf');
         db.prepare(
-          `INSERT INTO salon_staff (id, salon_id, name, role, specialties, bio, photo_url, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(id, salon.id, clean!.name, clean!.role, clean!.specialties, clean!.bio, clean!.photo_url, clean!.sort_order);
+          `INSERT INTO salon_staff (id, salon_id, name, role, specialties, bio, photo_url, accepting_bookings, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(id, salon.id, clean!.name, clean!.role, clean!.specialties, clean!.bio, clean!.photo_url, clean!.accepting_bookings, clean!.sort_order);
         keepIds.push(id);
       }
     }
@@ -681,6 +686,46 @@ builderRouter.get('/api/site/:slug', (req, res) => {
 });
 
 const bookingLimiter = rateLimit(30, 60 * 60 * 1000); // 30 bookings / hour / IP
+const availabilityLimiter = rateLimit(120, 60 * 60 * 1000); // 120 availability checks / hour / IP
+const lookupLimiter = rateLimit(60, 60 * 60 * 1000); // 60 self-service lookups / hour / IP
+
+/**
+ * Live slot availability for a salon + day — powers the booking modal's
+ * per-slot states and the 409-conflict recovery suggestions.
+ */
+builderRouter.get('/api/site/:slug/availability', availabilityLimiter, (req, res) => {
+  const slug = normalizeSlug(String(req.params.slug || ''));
+  const salon = slug ? getSalonBySlug(slug) : undefined;
+  if (!salon || !salon.published) return res.status(404).json({ error: 'This salon website does not exist or is not published yet.', code: 'NOT_FOUND' });
+
+  const date = asString(req.query.date, 10);
+  const dateError = validateBookingDate(date);
+  if (dateError) return bad(res, 400, dateError);
+
+  const serviceId = asString(req.query.serviceId, 80);
+  const staffId = asString(req.query.staffId, 80) || 'any';
+
+  let serviceDuration = 30;
+  if (serviceId) {
+    const svc = db
+      .prepare('SELECT duration FROM salon_services WHERE id = ? AND salon_id = ?')
+      .get(serviceId, salon.id) as { duration?: number } | undefined;
+    if (!svc) return bad(res, 400, 'Selected service is no longer offered.');
+    serviceDuration = svc.duration || 30;
+  }
+  if (staffId !== 'any') {
+    const stf = db
+      .prepare('SELECT accepting_bookings FROM salon_staff WHERE id = ? AND salon_id = ?')
+      .get(staffId, salon.id) as { accepting_bookings?: number } | undefined;
+    if (!stf) return bad(res, 400, 'Selected stylist was not found.');
+    if (stf.accepting_bookings === 0) {
+      return bad(res, 400, 'This specialist is not taking online bookings right now. Please choose another professional.');
+    }
+  }
+
+  const slots = getAvailability(salon.id, date, { serviceDuration, staffId });
+  res.json({ date, serviceDuration, slots });
+});
 
 builderRouter.post('/api/site/:slug/bookings', bookingLimiter, (req, res) => {
   const slug = normalizeSlug(String(req.params.slug || ''));
@@ -699,8 +744,8 @@ builderRouter.post('/api/site/:slug/bookings', bookingLimiter, (req, res) => {
   if (!customerName) return bad(res, 400, 'Please tell us your name.');
   if (!customerEmail && !customerPhone) return bad(res, 400, 'Please share either your email or phone so the salon can reach you.');
   if (customerEmail && !EMAIL_RE.test(customerEmail)) return bad(res, 400, 'Please enter a valid email address.');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return bad(res, 400, 'Please choose an appointment date.');
-  if (date < new Date().toISOString().slice(0, 10)) return bad(res, 400, 'Appointment date cannot be in the past.');
+  const dateError = validateBookingDate(date);
+  if (dateError) return bad(res, 400, dateError);
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return bad(res, 400, 'Please choose a time slot.');
 
   const service = db
@@ -712,22 +757,93 @@ builderRouter.post('/api/site/:slug/bookings', bookingLimiter, (req, res) => {
   if (staffId && staffId !== 'any') {
     staffRow = db.prepare('SELECT * FROM salon_staff WHERE id = ? AND salon_id = ?').get(staffId, salon.id);
     if (!staffRow) return bad(res, 400, 'Selected stylist was not found.');
+    if (staffRow.accepting_bookings === 0) {
+      return bad(res, 400, `${staffRow.name} is not taking online bookings right now. Please choose another professional.`);
+    }
+  }
+
+  // Double-booking guard: re-check the slot at write time (two customers can
+  // race the same availability snapshot). On conflict, suggest open slots so
+  // the client can recover without a blind retry.
+  const slots = getAvailability(salon.id, date, {
+    serviceDuration: service.duration || 30,
+    staffId: staffRow?.id || 'any',
+  });
+  const wanted = slots.find((s) => s.time === time);
+  if (!wanted || !wanted.available) {
+    return res.status(409).json({
+      error: wanted?.reason === 'past'
+        ? 'That time has just passed. Please pick a later slot.'
+        : 'Sorry — that slot was just taken. Please pick another time.',
+      code: 'SLOT_TAKEN',
+      suggestions: suggestAlternatives(slots, time),
+    });
   }
 
   const id = uid('bkg');
   db.prepare(
     `INSERT INTO salon_bookings
-     (id, salon_id, customer_name, customer_email, customer_phone, service_id, service_name, staff_id, staff_name, date, time, price, status, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)`
+     (id, salon_id, customer_name, customer_email, customer_phone, service_id, service_name, staff_id, staff_name, date, time, price, duration, status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)`
   ).run(
     id, salon.id, customerName, customerEmail, customerPhone,
     service.id, service.name,
     staffRow?.id || '', staffRow?.name || 'First available',
-    date, time, service.price, notes
+    date, time, service.price, service.duration || 30, notes
   );
 
   const row = db.prepare('SELECT * FROM salon_bookings WHERE id = ?').get(id) as any;
   res.status(201).json({ booking: toPublicBooking(row) });
+});
+
+/**
+ * Customer self-service: look up your own bookings by email (powers the
+ * "Manage my booking" panel). Only bookings whose email matches — normalized
+ * case-insensitively — are returned; nothing else leaks.
+ */
+builderRouter.get('/api/site/:slug/bookings/lookup', lookupLimiter, (req, res) => {
+  const slug = normalizeSlug(String(req.params.slug || ''));
+  const salon = slug ? getSalonBySlug(slug) : undefined;
+  if (!salon || !salon.published) return res.status(404).json({ error: 'This salon website does not exist or is not published yet.', code: 'NOT_FOUND' });
+
+  const email = asString(req.query.email, 200).toLowerCase();
+  if (!email || !EMAIL_RE.test(email)) return bad(res, 400, 'Please enter the email address you booked with.');
+
+  const rows = db
+    .prepare(
+      `SELECT * FROM salon_bookings
+       WHERE salon_id = ? AND lower(customer_email) = ?
+       ORDER BY date DESC, time DESC LIMIT 50`
+    )
+    .all(salon.id, email) as any[];
+  res.json({ bookings: rows.map(toPublicBooking) });
+});
+
+/**
+ * Customer self-service: cancel your own booking. Requires the booking email
+ * to match; only new/confirmed bookings can be cancelled this way.
+ */
+builderRouter.post('/api/site/:slug/bookings/:id/cancel', lookupLimiter, (req, res) => {
+  const slug = normalizeSlug(String(req.params.slug || ''));
+  const salon = slug ? getSalonBySlug(slug) : undefined;
+  if (!salon || !salon.published) return res.status(404).json({ error: 'This salon website does not exist or is not published yet.', code: 'NOT_FOUND' });
+
+  const email = asString(req.body?.email, 200).toLowerCase();
+  if (!email || !EMAIL_RE.test(email)) return bad(res, 400, 'Please enter the email address you booked with.');
+
+  const row = db
+    .prepare('SELECT * FROM salon_bookings WHERE id = ? AND salon_id = ?')
+    .get(req.params.id, salon.id) as any;
+  if (!row || (row.customer_email || '').toLowerCase() !== email) {
+    return res.status(404).json({ error: 'Booking not found for that email address.', code: 'NOT_FOUND' });
+  }
+  if (row.status === 'cancelled') return bad(res, 409, 'This booking is already cancelled.');
+  if (row.status !== 'new' && row.status !== 'confirmed') {
+    return bad(res, 409, 'This booking can no longer be cancelled online. Please contact the salon directly.');
+  }
+  db.prepare(`UPDATE salon_bookings SET status = 'cancelled' WHERE id = ?`).run(row.id);
+  const updated = db.prepare('SELECT * FROM salon_bookings WHERE id = ?').get(row.id) as any;
+  res.json({ booking: toPublicBooking(updated) });
 });
 
 // Runtime config for the client (base URL so dashboards can display the

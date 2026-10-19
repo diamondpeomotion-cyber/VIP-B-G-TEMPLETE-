@@ -4,9 +4,10 @@ import {
   RefreshCw, Calendar, User as UserIcon, ChevronRight, CheckCircle2, X, Star,
 } from 'lucide-react';
 import { api, ApiError } from './api';
-import type { SitePayload, SalonServiceItem, StaffMember, ConsultResult } from './types';
+import type { SitePayload, SalonServiceItem, StaffMember, ConsultResult, AvailabilityResponse, AvailabilitySlot } from './types';
 import { TIME_SLOTS, withAlpha } from './curated';
-import { Link } from '../Root';
+import { Link, platformPath } from '../Root';
+import ClientDashboard from '../components/ClientDashboard';
 
 interface PublicSiteProps {
   slug?: string;
@@ -23,6 +24,8 @@ export default function PublicSite({ slug, previewToken, draft }: PublicSiteProp
   const [bookingOpen, setBookingOpen] = useState(false);
   const [preselectedService, setPreselectedService] = useState<string>('');
   const [aiOpen, setAiOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (draft) {
@@ -34,6 +37,7 @@ export default function PublicSite({ slug, previewToken, draft }: PublicSiteProp
     (async () => {
       try {
         setLoading(true);
+        setError(null);
         const payload = await api.get<SitePayload>(
           `/api/site/${encodeURIComponent(slug!)}${previewToken ? '?preview=1' : ''}`
         );
@@ -41,7 +45,7 @@ export default function PublicSite({ slug, previewToken, draft }: PublicSiteProp
       } catch (e) {
         if (!cancelled) {
           const err = e as ApiError;
-          setError({ message: err.message, code: err.code });
+          setError({ message: err.message, code: (err as ApiError).code });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -50,7 +54,7 @@ export default function PublicSite({ slug, previewToken, draft }: PublicSiteProp
     return () => {
       cancelled = true;
     };
-  }, [slug, previewToken, draft]);
+  }, [slug, previewToken, draft, retryKey]);
 
   useEffect(() => {
     if (data?.salon?.name) {
@@ -76,7 +80,7 @@ export default function PublicSite({ slug, previewToken, draft }: PublicSiteProp
   }
 
   if (error || !data) {
-    return <SiteError code={error?.code} message={error?.message} />;
+    return <SiteError code={error?.code} message={error?.message} slug={slug} onRetry={() => setRetryKey((k) => k + 1)} />;
   }
 
   return (
@@ -85,6 +89,7 @@ export default function PublicSite({ slug, previewToken, draft }: PublicSiteProp
       showPreviewBadge={!!data.preview || (!!draft && !!slug)}
       onBook={openBooking}
       onOpenAI={() => setAiOpen(true)}
+      onManage={draft ? undefined : () => setManageOpen(true)}
     >
       {bookingOpen && (
         <BookingModal
@@ -96,6 +101,9 @@ export default function PublicSite({ slug, previewToken, draft }: PublicSiteProp
         />
       )}
       {aiOpen && <AIConsultModal data={data} onClose={() => setAiOpen(false)} onBook={openBooking} />}
+      {manageOpen && !draft && (
+        <ClientDashboard slug={data.salon.slug} salonName={data.salon.name} onClose={() => setManageOpen(false)} />
+      )}
     </ThemedSite>
   );
 }
@@ -103,8 +111,12 @@ export default function PublicSite({ slug, previewToken, draft }: PublicSiteProp
 /* ------------------------------------------------------------------ */
 /* Error / unpublished states                                          */
 /* ------------------------------------------------------------------ */
-function SiteError({ code, message }: { code?: string; message?: string }) {
+function SiteError({ code, message, slug, onRetry }: { code?: string; message?: string; slug?: string; onRetry: () => void }) {
   const unpublished = code === 'NOT_PUBLISHED';
+  const networkBlip = !code;
+  // A well-formed but unassigned address can be claimed by a new owner.
+  const claimable =
+    !unpublished && !!slug && /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(slug);
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-[#e5e5e5] font-sans flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
@@ -112,19 +124,46 @@ function SiteError({ code, message }: { code?: string; message?: string }) {
           <Scissors size={28} />
         </span>
         <h1 className="text-3xl sm:text-4xl font-serif italic text-white mb-3">
-          {unpublished ? 'Something beautiful is being polished' : 'This address has no salon yet'}
+          {unpublished
+            ? 'Something beautiful is being polished'
+            : networkBlip
+              ? 'We could not reach this salon'
+              : 'This address has no salon yet'}
         </h1>
         <p className="text-sm text-stone-500 max-w-md leading-relaxed">
           {unpublished
             ? 'The owner is putting the finishing touches on this website. Please check back soon.'
-            : message || 'The salon website you are looking for does not exist at this address.'}
+            : networkBlip
+              ? `${message || 'A connection problem interrupted this page.'} Your internet may have dropped — retry to reload the salon.`
+              : slug
+                ? `Nothing is published at “${slug}” yet. It may have moved, been unpublished, or never existed.`
+                : message || 'The salon website you are looking for does not exist at this address.'}
         </p>
-        <Link
-          href="/"
-          className="mt-8 bg-[#c5a059] hover:bg-[#b08c49] text-black text-xs font-bold uppercase tracking-widest px-6 py-3 rounded-sm transition"
-        >
-          Build your own salon website
-        </Link>
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          {!unpublished && (
+            <button
+              onClick={onRetry}
+              className="ghost-action text-xs font-bold uppercase tracking-widest px-6 py-3 rounded-sm transition inline-flex items-center gap-2 cursor-pointer"
+            >
+              <RefreshCw size={13} /> Try again
+            </button>
+          )}
+          {claimable ? (
+            <Link
+              href={platformPath('/auth?mode=signup')}
+              className="primary-action text-xs font-bold uppercase tracking-widest px-6 py-3 rounded-sm transition"
+            >
+              Claim this address
+            </Link>
+          ) : (
+            <Link
+              href={platformPath('/')}
+              className="primary-action text-xs font-bold uppercase tracking-widest px-6 py-3 rounded-sm transition"
+            >
+              Build your own salon website
+            </Link>
+          )}
+        </div>
       </div>
       <PoweredByFooter />
     </div>
@@ -134,7 +173,7 @@ function SiteError({ code, message }: { code?: string; message?: string }) {
 function PoweredByFooter() {
   return (
     <div className="py-5 text-center border-t border-[#1c1c1f]">
-      <Link href="/" className="text-[10px] uppercase tracking-widest font-mono text-stone-600 hover:text-[#c5a059] transition">
+      <Link href={platformPath('/')} className="text-[10px] uppercase tracking-widest font-mono text-stone-600 hover:text-[#c5a059] transition">
         Powered by Nexora White-Label Studio
       </Link>
     </div>
@@ -149,12 +188,14 @@ function ThemedSite({
   showPreviewBadge,
   onBook,
   onOpenAI,
+  onManage,
   children,
 }: {
   data: SitePayload;
   showPreviewBadge: boolean;
   onBook: (serviceId?: string) => void;
   onOpenAI: () => void;
+  onManage?: () => void;
   children?: React.ReactNode;
 }) {
   const { salon, services, staff } = data;
@@ -604,6 +645,11 @@ function TeamCard({ member, bgColor }: { member: StaffMember; bgColor: string; k
         <span className="absolute top-3 left-3 bg-[var(--wl-overlay)] backdrop-blur text-[var(--wl-primary)] text-[9px] font-mono font-bold uppercase tracking-widest px-2.5 py-1 rounded">
           {member.role}
         </span>
+        {member.acceptingBookings === false && (
+          <span className="absolute top-3 right-3 bg-black/70 backdrop-blur text-stone-400 text-[9px] font-mono font-bold uppercase tracking-widest px-2.5 py-1 rounded border border-white/10">
+            Bookings paused
+          </span>
+        )}
       </div>
       <div className="p-4">
         <h4 className="font-serif text-base">{member.name}</h4>
@@ -637,6 +683,7 @@ function BookingModal({
   onClose: () => void;
 }) {
   const { salon, services, staff } = data;
+  const bookableStaff = useMemo(() => staff.filter((m) => m.acceptingBookings !== false), [staff]);
   const [selService, setSelService] = useState(serviceId || services[0]?.id || '');
   const [selStaff, setSelStaff] = useState('any');
   const [date, setDate] = useState(() => new Date(Date.now() + 86400000).toISOString().slice(0, 10));
@@ -646,11 +693,21 @@ function BookingModal({
   const [phone, setPhoneField] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [submitError, setSubmitError] = useState<{ message: string; retryable: boolean } | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [confirmation, setConfirmation] = useState<{ id: string } | null>(null);
+
+  // Live availability for the chosen day/service/specialist.
+  const [slots, setSlots] = useState<AvailabilitySlot[] | null>(null);
+  const [availLoading, setAvailLoading] = useState(false);
+  const [availError, setAvailError] = useState('');
+  const [availKey, setAvailKey] = useState(0); // bump to retry availability
+  const [slotNotice, setSlotNotice] = useState('');
 
   const service = services.find((s) => s.id === selService);
   const today = new Date().toISOString().slice(0, 10);
+  const maxDate = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -660,9 +717,87 @@ function BookingModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
+  // If the chosen specialist pauses online bookings mid-session, fall back.
+  useEffect(() => {
+    if (selStaff !== 'any' && !bookableStaff.some((m) => m.id === selStaff)) {
+      setSelStaff('any');
+    }
+  }, [bookableStaff, selStaff]);
+
+  // If the preselected service vanished from the menu, pick the first live one.
+  useEffect(() => {
+    if (selService && !services.some((s) => s.id === selService)) {
+      setSelService(services[0]?.id || '');
+    }
+  }, [services, selService]);
+
+  // Fetch live availability whenever the day/service/specialist changes.
+  useEffect(() => {
+    if (inline || !selService || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setSlots(null);
+      return;
+    }
+    let cancelled = false;
+    setAvailLoading(true);
+    setAvailError('');
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get<AvailabilityResponse>(
+          `/api/site/${encodeURIComponent(slug)}/availability?date=${date}&serviceId=${encodeURIComponent(selService)}&staffId=${encodeURIComponent(selStaff)}`
+        );
+        if (cancelled) return;
+        setSlots(res.slots);
+        // Auto-recover when the current pick is taken: move to the next open slot.
+        const current = res.slots.find((s) => s.time === time);
+        if (current && !current.available) {
+          const next = res.slots.find((s) => s.available);
+          if (next) {
+            setTime(next.time);
+            setSlotNotice(`Your ${time} pick just filled — we moved you to ${next.time}.`);
+          } else {
+            setSlotNotice('This day is fully booked — please try another date.');
+          }
+        } else {
+          setSlotNotice('');
+        }
+      } catch (err) {
+        if (cancelled) return;
+        // Graceful degradation: keep the full static schedule so customers can
+        // still request a time; the salon confirms by phone/email instead.
+        setSlots(null);
+        setAvailError((err as Error).message || 'Live availability is unreachable right now.');
+      } finally {
+        if (!cancelled) setAvailLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // `time` intentionally excluded: changing the time must not refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, date, selService, selStaff, inline, availKey]);
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (!name.trim()) errs.name = 'Please tell us your name.';
+    if (!email.trim() && !phone.trim()) {
+      errs.contact = 'Share your email or phone so the salon can reach you.';
+    } else if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      errs.contact = 'That email address looks invalid.';
+    }
+    if (!selService) errs.service = 'Please choose a service.';
+    if (date < today) errs.date = 'Date cannot be in the past.';
+    if (date > maxDate) errs.date = 'Bookings are open up to 90 days ahead.';
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const submit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setSubmitError(null);
+    setSuggestions([]);
+    if (!validate()) return;
     if (inline) {
       // Draft preview (wizard) — simulate, never write to the database.
       setConfirmation({ id: 'preview' });
@@ -671,18 +806,48 @@ function BookingModal({
     setSubmitting(true);
     try {
       const res = await api.post<{ booking: { id: string } }>(`/api/site/${encodeURIComponent(slug)}/bookings`, {
-        customerName: name,
-        customerEmail: email,
-        customerPhone: phone,
+        customerName: name.trim(),
+        customerEmail: email.trim(),
+        customerPhone: phone.trim(),
         serviceId: selService,
         staffId: selStaff,
         date,
         time,
-        notes,
+        notes: notes.trim(),
       });
       setConfirmation({ id: res.booking.id });
     } catch (err) {
-      setErrorMsg((err as Error).message);
+      const ae = err as ApiError;
+      if (ae.status === 409 && ae.code === 'SLOT_TAKEN') {
+        // Someone grabbed the slot first — refresh availability and offer
+        // the server's suggested open times as one-tap chips.
+        const sug: string[] = Array.isArray((ae.payload as any)?.suggestions)
+          ? (ae.payload as any).suggestions
+          : [];
+        setSuggestions(sug);
+        setSubmitError({
+          message: sug.length
+            ? `${ae.message} These nearby times are still open:`
+            : ae.message,
+          retryable: false,
+        });
+        setAvailKey((k) => k + 1);
+      } else if (ae.status === 429) {
+        setSubmitError({
+          message: 'Too many booking attempts right now. Wait a few minutes, then retry — your details are kept.',
+          retryable: true,
+        });
+      } else if (ae.status === 0) {
+        setSubmitError({
+          message: 'Connection lost before your booking went through. Check your internet and retry — nothing was booked yet.',
+          retryable: true,
+        });
+      } else {
+        setSubmitError({
+          message: ae.message || 'Something went wrong. Please try again.',
+          retryable: ae.status >= 500,
+        });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -728,30 +893,51 @@ function BookingModal({
             )}
             <button
               onClick={onClose}
-              className="bg-[#c5a059] hover:bg-[#b08c49] text-black text-xs font-bold uppercase tracking-widest px-8 py-3 rounded-sm transition cursor-pointer"
+              className="primary-action text-xs font-bold uppercase tracking-widest px-8 py-3 rounded-sm transition cursor-pointer"
             >
               Done
             </button>
           </div>
+        ) : services.length === 0 ? (
+          <div className="p-8 text-center space-y-4">
+            <Calendar size={40} className="text-[#c5a059] mx-auto opacity-70" />
+            <h4 className="font-serif italic text-white text-lg">Booking opens soon</h4>
+            <p className="text-sm text-stone-400 leading-relaxed">
+              {salon.name} is still curating its service menu. Please check back shortly
+              {salon.phone ? <> or call <a className="text-[#c5a059]" href={`tel:${salon.phone.replace(/[^+\d]/g, '')}`}>{salon.phone}</a></> : ''} to reserve directly.
+            </p>
+            <button
+              onClick={onClose}
+              className="ghost-action text-xs font-bold uppercase tracking-widest px-8 py-3 rounded-sm transition cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         ) : (
-          <form onSubmit={submit} className="p-5 space-y-4">
+          <form onSubmit={submit} className="p-5 space-y-4" noValidate>
             <div>
               <label className={modalLabel}>Service</label>
-              <select value={selService} onChange={(e) => setSelService(e.target.value)} className={modalInput} required>
+              <select
+                value={selService}
+                onChange={(e) => setSelService(e.target.value)}
+                className={`${modalInput}${fieldErrors.service ? ' input-error' : ''}`}
+                required
+              >
                 {services.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name} — {rupiah(s.price)} · {s.duration} min
                   </option>
                 ))}
               </select>
+              {fieldErrors.service && <p className="text-[11px] text-red-400 mt-1.5">{fieldErrors.service}</p>}
             </div>
 
-            {staff.length > 0 && (
+            {bookableStaff.length > 0 && (
               <div>
                 <label className={modalLabel}>Preferred professional</label>
                 <select value={selStaff} onChange={(e) => setSelStaff(e.target.value)} className={modalInput}>
                   <option value="any">First available</option>
-                  {staff.map((m) => (
+                  {bookableStaff.map((m) => (
                     <option key={m.id} value={m.id}>{m.name} — {m.role}</option>
                   ))}
                 </select>
@@ -761,41 +947,131 @@ function BookingModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={modalLabel}>Date</label>
-                <input type="date" required min={today} value={date} onChange={(e) => setDate(e.target.value)} className={modalInput} />
+                <input
+                  type="date"
+                  required
+                  min={today}
+                  max={maxDate}
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className={`${modalInput}${fieldErrors.date ? ' input-error' : ''}`}
+                />
+                {fieldErrors.date && <p className="text-[11px] text-red-400 mt-1.5">{fieldErrors.date}</p>}
               </div>
               <div>
-                <label className={modalLabel}>Time</label>
-                <select value={time} onChange={(e) => setTime(e.target.value)} className={modalInput} required>
-                  {TIME_SLOTS.map((t) => (
-                    <option key={t} value={t}>{t}</option>
+                <label className={modalLabel}>
+                  <span className="inline-flex items-center gap-1.5">
+                    Time
+                    {availLoading && <RefreshCw size={10} className="animate-spin text-[#c5a059]" />}
+                  </span>
+                </label>
+                <select value={time} onChange={(e) => { setTime(e.target.value); setSlotNotice(''); }} className={modalInput} required>
+                  {(slots || TIME_SLOTS.map((t) => ({ time: t, available: true }) as AvailabilitySlot)).map((s) => (
+                    <option key={s.time} value={s.time} disabled={!!slots && !s.available}>
+                      {s.time}{slots && !s.available ? (s.reason === 'past' ? ' · Passed' : ' · Booked') : ''}
+                    </option>
                   ))}
                 </select>
               </div>
             </div>
 
+            {slotNotice && (
+              <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-2">{slotNotice}</p>
+            )}
+
+            {availError && !inline && (
+              <div className="text-[11px] text-amber-300/90 bg-amber-500/5 border border-amber-500/20 rounded px-3 py-2 flex items-center justify-between gap-3">
+                <span>Live availability is offline — showing the full schedule. The salon will confirm your time.</span>
+                <button
+                  type="button"
+                  onClick={() => setAvailKey((k) => k + 1)}
+                  disabled={availLoading}
+                  className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-200 hover:text-white transition cursor-pointer"
+                >
+                  <RefreshCw size={11} className={availLoading ? 'animate-spin' : ''} /> Retry
+                </button>
+              </div>
+            )}
+
             <div>
               <label className={modalLabel}>Your name</label>
-              <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className={modalInput} />
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Full name"
+                autoComplete="name"
+                className={`${modalInput}${fieldErrors.name ? ' input-error' : ''}`}
+              />
+              {fieldErrors.name && <p className="text-[11px] text-red-400 mt-1.5">{fieldErrors.name}</p>}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={modalLabel}>Email</label>
-                <input type="email" value={email} onChange={(e) => setEmailField(e.target.value)} placeholder="you@example.com" className={modalInput} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmailField(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  className={`${modalInput}${fieldErrors.contact ? ' input-error' : ''}`}
+                />
               </div>
               <div>
                 <label className={modalLabel}>Phone / WhatsApp</label>
-                <input type="tel" value={phone} onChange={(e) => setPhoneField(e.target.value)} placeholder="+91 …" className={modalInput} />
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhoneField(e.target.value)}
+                  placeholder="+91 …"
+                  autoComplete="tel"
+                  className={`${modalInput}${fieldErrors.contact ? ' input-error' : ''}`}
+                />
               </div>
             </div>
+            {fieldErrors.contact && <p className="-mt-1 text-[11px] text-red-400">{fieldErrors.contact}</p>}
 
             <div>
               <label className={modalLabel}>Notes for the stylist (optional)</label>
               <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Allergies, preferences, occasion…" className={`${modalInput} resize-none`} />
             </div>
 
-            {errorMsg && (
-              <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{errorMsg}</p>
+            {submitError && (
+              <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded px-3 py-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span>{submitError.message}</span>
+                  {submitError.retryable && (
+                    <button
+                      type="button"
+                      onClick={() => submit()}
+                      disabled={submitting}
+                      className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-red-200 hover:text-white transition cursor-pointer"
+                    >
+                      <RefreshCw size={11} className={submitting ? 'animate-spin' : ''} /> Retry
+                    </button>
+                  )}
+                </div>
+                {suggestions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          setTime(s);
+                          setSuggestions([]);
+                          setSubmitError(null);
+                        }}
+                        className="text-[11px] font-mono font-bold bg-[#c5a059]/15 border border-[#c5a059]/40 text-[#c5a059] hover:bg-[#c5a059]/25 rounded px-2.5 py-1 transition cursor-pointer"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {service && (
@@ -808,7 +1084,7 @@ function BookingModal({
             <button
               type="submit"
               disabled={submitting}
-              className="w-full bg-[#c5a059] hover:bg-[#b08c49] disabled:opacity-50 text-black text-xs font-bold uppercase tracking-widest py-4 rounded-sm transition flex items-center justify-center gap-2 cursor-pointer"
+              className="primary-action w-full text-xs font-bold uppercase tracking-widest py-4 rounded-sm transition inline-flex items-center justify-center gap-2 cursor-pointer"
             >
               {submitting ? <RefreshCw size={14} className="animate-spin" /> : <Calendar size={14} />}
               {submitting ? 'Reserving your chair…' : 'Confirm reservation'}
@@ -938,6 +1214,11 @@ function AIConsultModal({
 
           {result && (
             <div className="space-y-4 pt-2 border-t border-[#2a2a2d]">
+              {result.fallback && (
+                <p className="text-[11px] text-amber-300/90 bg-amber-500/5 border border-amber-500/20 rounded px-3 py-2">
+                  Style AI is offline right now — showing a curated recommendation from the salon's menu.
+                </p>
+              )}
               <p className="text-xs text-stone-400 leading-relaxed italic">{result.overallAdvice}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {result.styles.map((st, i) => {

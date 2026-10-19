@@ -115,7 +115,22 @@ export function PrimaryButton({
   return (
     <button
       {...rest}
-      className={`bg-[#c5a059] hover:bg-[#b08c49] disabled:opacity-40 disabled:cursor-not-allowed text-black text-xs font-bold uppercase tracking-widest px-5 py-2.5 rounded-sm transition inline-flex items-center justify-center gap-2 cursor-pointer ${className}`}
+      className={`primary-action text-xs font-bold uppercase tracking-widest px-5 py-2.5 rounded-sm transition inline-flex items-center justify-center gap-2 cursor-pointer ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function SecondaryButton({
+  children,
+  className = '',
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...rest}
+      className={`secondary-action text-xs font-bold uppercase tracking-widest px-5 py-2.5 rounded-sm transition inline-flex items-center justify-center gap-2 cursor-pointer ${className}`}
     >
       {children}
     </button>
@@ -130,7 +145,7 @@ export function GhostButton({
   return (
     <button
       {...rest}
-      className={`bg-transparent hover:bg-white/5 border border-[#2a2a2d] hover:border-stone-500 disabled:opacity-40 text-stone-300 hover:text-white text-xs font-bold uppercase tracking-widest px-5 py-2.5 rounded-sm transition inline-flex items-center justify-center gap-2 cursor-pointer ${className}`}
+      className={`ghost-action text-xs font-bold uppercase tracking-widest px-5 py-2.5 rounded-sm transition inline-flex items-center justify-center gap-2 cursor-pointer ${className}`}
     >
       {children}
     </button>
@@ -145,10 +160,57 @@ export function DangerButton({
   return (
     <button
       {...rest}
-      className={`bg-transparent hover:bg-red-500/10 border border-red-500/30 hover:border-red-500/60 disabled:opacity-40 text-red-400 text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-sm transition inline-flex items-center justify-center gap-2 cursor-pointer ${className}`}
+      className={`danger-action text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-sm transition inline-flex items-center justify-center gap-2 cursor-pointer ${className}`}
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Accessible toggle switch (role="switch", keyboard operable). Visuals come
+ * from `.toggle-switch` in index.css; state is driven by `checked`.
+ */
+export function Toggle({
+  checked,
+  onChange,
+  label,
+  hint,
+  disabled,
+  size,
+  id,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label?: string;
+  hint?: string;
+  disabled?: boolean;
+  size?: 'sm' | 'md';
+  id?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      {(label || hint) && (
+        <span className="min-w-0">
+          {label && (
+            <span className="block text-[10px] uppercase tracking-wider text-stone-400 font-mono font-bold">
+              {label}
+            </span>
+          )}
+          {hint && <span className="block text-[10px] text-stone-600 font-mono mt-0.5">{hint}</span>}
+        </span>
+      )}
+      <button
+        type="button"
+        role="switch"
+        id={id}
+        aria-checked={checked}
+        aria-label={label || 'Toggle'}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`toggle-switch${size === 'sm' ? ' toggle-sm' : ''}`}
+      />
+    </div>
   );
 }
 

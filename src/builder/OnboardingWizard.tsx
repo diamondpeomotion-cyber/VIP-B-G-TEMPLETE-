@@ -7,7 +7,7 @@ import {
 import { Link, navigate } from '../Root';
 import { api, ApiError } from './api';
 import { useAuth } from './auth';
-import { Field, TextField, TextArea, SelectField, ColorField, PrimaryButton, GhostButton, Badge } from './fields';
+import { Field, TextField, TextArea, SelectField, ColorField, PrimaryButton, GhostButton, Badge, Toggle } from './fields';
 import ImageUrlField from './ImageUrlField';
 import PublicSite from './PublicSite';
 import {
@@ -901,6 +901,7 @@ export function StaffListEditor({
         specialties: [],
         bio: '',
         photoUrl: '',
+        acceptingBookings: true,
       },
     ]);
   };
@@ -953,6 +954,14 @@ export function StaffListEditor({
                 galleryTitle="Choose a portrait"
                 aspect="square"
                 placeholder="https://…/portrait.jpg"
+              />
+            </div>
+            <div className="sm:col-span-2 bg-[#121214] border border-[#2a2a2d] rounded px-3.5 py-3">
+              <Toggle
+                label="Accepting online bookings"
+                hint={m.acceptingBookings !== false ? 'Customers can pick this specialist when booking' : 'Hidden from the booking form until re-enabled'}
+                checked={m.acceptingBookings !== false}
+                onChange={(v) => update(i, { acceptingBookings: v })}
               />
             </div>
           </div>

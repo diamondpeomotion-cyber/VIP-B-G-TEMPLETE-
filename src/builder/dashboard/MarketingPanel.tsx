@@ -12,6 +12,7 @@ interface Campaign {
   promoCode: string;
   discountValue: string;
   targetAudience: string;
+  fallback?: boolean;
 }
 
 /** AI marketing campaign generator — scoped to the owner's salon. */
@@ -75,6 +76,11 @@ export default function MarketingPanel({ salon }: { salon: Salon }) {
 
         {campaign && (
           <div className="mt-6 bg-[#0a0a0b] border border-[#c5a059]/30 border-dashed rounded-lg p-5 space-y-3 animate-fadeIn">
+            {campaign.fallback && (
+              <p className="text-[11px] text-amber-300/90 bg-amber-500/5 border border-amber-500/20 rounded px-3 py-2">
+                Gemini AI is unreachable right now — showing a curated draft. Your inputs are kept; regenerate anytime.
+              </p>
+            )}
             <div className="flex items-center justify-between gap-3 pb-3 border-b border-[#1c1c1f]">
               <h4 className="font-serif italic text-[#c5a059]">{campaign.title}</h4>
               <span className="text-[9px] uppercase tracking-widest font-mono font-bold bg-[#c5a059]/15 text-[#c5a059] px-2 py-0.5 rounded">

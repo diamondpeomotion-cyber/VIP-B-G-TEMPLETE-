@@ -5,10 +5,16 @@
  * prompts & fallbacks) and by each white-label salon's public website, which
  * supplies its own name + service catalog so the consultant answers with
  * that salon's real services.
+ *
+ * Reliability contract: these endpoints NEVER hard-fail because the AI
+ * provider is down, slow, misconfigured, or returns malformed JSON. Every
+ * failure path logs a structured error server-side and returns a curated
+ * local fallback with `fallback: true` so the UI can say so honestly.
  */
 import { Router } from 'express';
 import { Type } from '@google/genai';
 import { getGeminiClient } from './gemini';
+import { logError } from './http';
 
 export const aiRouter = Router();
 
@@ -19,73 +25,151 @@ interface ServiceCtxItem {
   category?: string;
 }
 
-// Gemini AI Business Assistance and Hair Portrait Consultation
-aiRouter.post('/api/ai/consult', async (req, res) => {
-  const { hairTexture, facialShape, styleGoals, lengthPreference, salonName, servicesCtx } = req.body as {
-    hairTexture?: string;
-    facialShape?: string;
-    styleGoals?: string;
-    lengthPreference?: string;
-    salonName?: string;
-    servicesCtx?: ServiceCtxItem[];
+function clamp(v: unknown, max: number, fallback = ''): string {
+  return typeof v === 'string' ? v.trim().slice(0, max) : fallback;
+}
+
+function isValidConsultResult(v: any): boolean {
+  return (
+    !!v &&
+    Array.isArray(v.styles) &&
+    v.styles.length > 0 &&
+    typeof v.overallAdvice === 'string' &&
+    v.styles.every(
+      (s: any) =>
+        s && typeof s.name === 'string' && typeof s.description === 'string' &&
+        typeof s.matchedServiceId === 'string' && typeof s.reasoning === 'string'
+    )
+  );
+}
+
+function isValidCampaign(v: any): boolean {
+  return (
+    !!v &&
+    typeof v.title === 'string' &&
+    typeof v.copy === 'string' &&
+    typeof v.promoCode === 'string' &&
+    typeof v.discountValue === 'string'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Curated local fallbacks (also used when no API key is configured)
+// ---------------------------------------------------------------------------
+
+function whiteLabelConsultFallback(opts: {
+  salonName: string;
+  catalog: ServiceCtxItem[];
+  hairTexture: string;
+  facialShape: string;
+  styleGoals: string;
+}) {
+  const { salonName, catalog, hairTexture, facialShape, styleGoals } = opts;
+  const top = catalog.slice(0, 2);
+  return {
+    fallback: true,
+    styles: top.map((s, i) => ({
+      name: s.name,
+      description: `A signature ${s.category || 'salon'} ritual at ${salonName}, curated for ${facialShape || 'your'} features and ${hairTexture} texture.`,
+      matchedServiceId: s.id,
+      reasoning:
+        i === 0
+          ? `Best direct match for your goal of "${styleGoals}".`
+          : 'Complements the look beautifully and maintains long-term hair health.',
+    })),
+    overallAdvice: `Namaste from ${salonName}! For ${hairTexture} hair with ${facialShape || 'oval'} features, our stylists recommend starting with “${top[0]?.name || 'a signature consultation'}” and pairing it with regular nourishing rituals. Book a session — our team will personalize the experience for you.`,
+    recommendedStylistId: '',
   };
+}
 
-  if (!hairTexture || !styleGoals) {
-    return res.status(400).json({ error: 'Missing critical hair assessment answers' });
-  }
-
-  const client = getGeminiClient();
-  const isWhiteLabel = !!salonName && Array.isArray(servicesCtx) && servicesCtx.length > 0;
-  const catalog = (servicesCtx || []).slice(0, 20);
-
-  if (!client) {
-    // Simulation fallbacks when API key isn't provided
-    if (isWhiteLabel) {
-      const top = catalog.slice(0, 2);
-      return res.json({
-        styles: top.map((s, i) => ({
-          name: s.name,
-          description: `A signature ${s.category || 'salon'} ritual at ${salonName}, curated for ${facialShape || 'your'} features and ${hairTexture} texture.`,
-          matchedServiceId: s.id,
-          reasoning: i === 0
-            ? `Best direct match for your goal of "${styleGoals}".`
-            : `Complements the look beautifully and maintains long-term hair health.`,
-        })),
-        overallAdvice: `Namaste from ${salonName}! For ${hairTexture} hair with ${facialShape || 'oval'} features, our stylists recommend starting with “${top[0]?.name || 'a signature consultation'}” and pairing it with regular nourishing rituals. Book a session — our team will personalize the experience for you.`,
-        recommendedStylistId: '',
-      });
-    }
-    const mockAdvice = `Namaste! As your Royal Tresses Jaipur hair & wellness consultant:
+function demoConsultFallback(lengthPreference: string, hairTexture: string, facialShape: string, styleGoals: string) {
+  const mockAdvice = `Namaste! As your Royal Tresses Jaipur hair & wellness consultant:
 For dynamic hair texture of "${hairTexture}" with "${facialShape || 'Oval'}" facial contours:
 1. **Moroccan Argan Hair Spa**: Restores deep moisture, tames frizz caused by dry Rajasthan weather, and coats hair strands with organic gloss.
 2. **Signature Precision Cut with Face-Framing Layers**: Accentuates your ${facialShape || 'Oval'} structure while maintaining rich Indian volume.
 
 We recommend booking Aarav Sharma at C-Scheme or Priya Sen for your bespoke session.`;
 
-    return res.json({
-      styles: [
-        {
-          name: lengthPreference === 'short' ? 'Royal Feathered Shag' : 'Silk Layered Cut with Royal Blow-Dry',
-          description: `A customized precision cut tailored to balance ${facialShape || 'Oval'} facial geometry and enhance natural ${hairTexture} loops.`,
-          matchedServiceId: 's-1',
-          reasoning: `Your ${styleGoals} preference aligns with Aarav Sharma's architectural precision layering.`
-        },
-        {
-          name: 'Moroccan Argan Hair Spa & Scalp Detox',
-          description: 'Deep hair hydration and scalp champi with warm botanical oils.',
-          matchedServiceId: 's-2',
-          reasoning: 'Rehydrates hair cuticles from seasonal weather and delivers brilliant glossy radiance.'
-        }
-      ],
-      overallAdvice: mockAdvice,
-      recommendedStylistId: 'sty-1'
-    });
+  return {
+    fallback: true,
+    styles: [
+      {
+        name: lengthPreference === 'short' ? 'Royal Feathered Shag' : 'Silk Layered Cut with Royal Blow-Dry',
+        description: `A customized precision cut tailored to balance ${facialShape || 'Oval'} facial geometry and enhance natural ${hairTexture} loops.`,
+        matchedServiceId: 's-1',
+        reasoning: `Your ${styleGoals} preference aligns with Aarav Sharma's architectural precision layering.`,
+      },
+      {
+        name: 'Moroccan Argan Hair Spa & Scalp Detox',
+        description: 'Deep hair hydration and scalp champi with warm botanical oils.',
+        matchedServiceId: 's-2',
+        reasoning: 'Rehydrates hair cuticles from seasonal weather and delivers brilliant glossy radiance.',
+      },
+    ],
+    overallAdvice: mockAdvice,
+    recommendedStylistId: 'sty-1',
+  };
+}
+
+function marketingFallback(opts: {
+  salonName?: string;
+  city?: string;
+  slowHour?: string;
+  activePromotion?: string;
+  targetAudience?: string;
+}) {
+  const brand = opts.salonName || 'Royal Tresses Jaipur';
+  const location = opts.city || 'Jaipur';
+  return {
+    fallback: true,
+    title: `${opts.activePromotion || 'Royal Festive Glow'} Mid-Week Campaign`,
+    channel: 'sms',
+    subject: `Royal Rewards Await You at ${brand}`,
+    copy: `✨ ${brand} VIP Invite: Transform your ${opts.slowHour || 'Tuesday afternoon'} into a regal pampering session. Enjoy flat ₹500 OFF on Hair Spa & Gold Facials with code GLOW500. Slots strictly by appointment${opts.city ? ` in ${location}` : ' in Jaipur'}!`,
+    promoCode: 'GLOW500',
+    discountValue: '₹500 OFF',
+    targetAudience: opts.targetAudience || `${location} regular clients and wedding guests`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gemini AI Business Assistance and Hair Portrait Consultation
+// ---------------------------------------------------------------------------
+aiRouter.post('/api/ai/consult', async (req, res) => {
+  const hairTexture = clamp(req.body?.hairTexture, 200);
+  const facialShape = clamp(req.body?.facialShape, 100, 'Oval');
+  const styleGoals = clamp(req.body?.styleGoals, 500);
+  const lengthPreference = clamp(req.body?.lengthPreference, 60, 'Medium');
+  const salonName = clamp(req.body?.salonName, 120);
+  const servicesCtx = Array.isArray(req.body?.servicesCtx)
+    ? (req.body.servicesCtx as ServiceCtxItem[]).slice(0, 20).map((s) => ({
+        id: clamp(s?.id, 80),
+        name: clamp(s?.name, 150, 'Salon service'),
+        price: typeof s?.price === 'number' ? s.price : undefined,
+        category: clamp(s?.category, 60),
+      }))
+    : [];
+
+  if (!hairTexture || !styleGoals) {
+    return res.status(400).json({ error: 'Missing critical hair assessment answers' });
+  }
+
+  const isWhiteLabel = !!salonName && servicesCtx.length > 0;
+  const client = getGeminiClient();
+
+  if (!client) {
+    // No API key configured — serve the curated local experience.
+    return res.json(
+      isWhiteLabel
+        ? whiteLabelConsultFallback({ salonName, catalog: servicesCtx, hairTexture, facialShape, styleGoals })
+        : demoConsultFallback(lengthPreference, hairTexture, facialShape, styleGoals)
+    );
   }
 
   try {
     let prompt: string;
     if (isWhiteLabel) {
-      const catalogLines = catalog
+      const catalogLines = servicesCtx
         .map((s) => `- id: "${s.id}" | ${s.name} (${s.category || 'service'}${s.price ? `, ₹${s.price}` : ''})`)
         .join('\n');
       prompt = `You are ${salonName} AI, a warm, professional luxury salon stylist consultant embedded on the salon's own website.
@@ -150,51 +234,49 @@ Respond strictly in JSON format matching this schema:
                   name: { type: Type.STRING },
                   description: { type: Type.STRING },
                   matchedServiceId: { type: Type.STRING },
-                  reasoning: { type: Type.STRING }
+                  reasoning: { type: Type.STRING },
                 },
-                required: ['name', 'description', 'matchedServiceId', 'reasoning']
-              }
+                required: ['name', 'description', 'matchedServiceId', 'reasoning'],
+              },
             },
             overallAdvice: { type: Type.STRING },
-            recommendedStylistId: { type: Type.STRING }
+            recommendedStylistId: { type: Type.STRING },
           },
-          required: ['styles', 'overallAdvice', 'recommendedStylistId']
-        }
-      }
+          required: ['styles', 'overallAdvice', 'recommendedStylistId'],
+        },
+      },
     });
 
-    const jsonText = response.text.trim();
-    res.json(JSON.parse(jsonText));
-
-  } catch (error: any) {
-    res.status(500).json({ error: 'AI generation failed', message: error.message });
+    const parsed = JSON.parse((response.text || '').trim());
+    if (!isValidConsultResult(parsed)) {
+      throw new Error('AI returned an unexpected shape');
+    }
+    res.json({ fallback: false, ...parsed });
+  } catch (error: unknown) {
+    // Provider outage / quota / malformed output → log + curated fallback.
+    logError('ai.consult', error, { whiteLabel: isWhiteLabel });
+    res.json(
+      isWhiteLabel
+        ? whiteLabelConsultFallback({ salonName, catalog: servicesCtx, hairTexture, facialShape, styleGoals })
+        : demoConsultFallback(lengthPreference, hairTexture, facialShape, styleGoals)
+    );
   }
 });
 
+// ---------------------------------------------------------------------------
 // Marketing AI and Business Analytics Insights
+// ---------------------------------------------------------------------------
 aiRouter.post('/api/ai/marketing', async (req, res) => {
-  const { slowHour, activePromotion, targetAudience, salonName, city } = req.body as {
-    slowHour?: string;
-    activePromotion?: string;
-    targetAudience?: string;
-    salonName?: string;
-    city?: string;
-  };
+  const slowHour = clamp(req.body?.slowHour, 200);
+  const activePromotion = clamp(req.body?.activePromotion, 200);
+  const targetAudience = clamp(req.body?.targetAudience, 200);
+  const salonName = clamp(req.body?.salonName, 120);
+  const city = clamp(req.body?.city, 120);
 
   const client = getGeminiClient();
 
   if (!client) {
-    const brand = salonName || 'Royal Tresses Jaipur';
-    const location = city || 'Jaipur';
-    return res.json({
-      title: `${activePromotion || 'Royal Festive Glow'} Mid-Week Campaign`,
-      channel: 'sms',
-      subject: `Royal Rewards Await You at ${brand}`,
-      copy: `✨ ${brand} VIP Invite: Transform your ${slowHour || 'Tuesday afternoon'} into a regal pampering session. Enjoy flat ₹500 OFF on Hair Spa & Gold Facials with code GLOW500. Slots strictly by appointment${city ? ` in ${location}` : ' in Jaipur'}!`,
-      promoCode: 'GLOW500',
-      discountValue: '₹500 OFF',
-      targetAudience: targetAudience || `${location} regular clients and wedding guests`
-    });
+    return res.json(marketingFallback({ salonName, city, slowHour, activePromotion, targetAudience }));
   }
 
   try {
@@ -231,17 +313,20 @@ aiRouter.post('/api/ai/marketing', async (req, res) => {
             copy: { type: Type.STRING },
             promoCode: { type: Type.STRING },
             discountValue: { type: Type.STRING },
-            targetAudience: { type: Type.STRING }
+            targetAudience: { type: Type.STRING },
           },
-          required: ['title', 'channel', 'copy', 'promoCode', 'discountValue', 'targetAudience']
-        }
-      }
+          required: ['title', 'channel', 'copy', 'promoCode', 'discountValue', 'targetAudience'],
+        },
+      },
     });
 
-    const jsonText = response.text.trim();
-    res.json(JSON.parse(jsonText));
-
-  } catch (error: any) {
-    res.status(500).json({ error: 'AI generation failed', message: error.message });
+    const parsed = JSON.parse((response.text || '').trim());
+    if (!isValidCampaign(parsed)) {
+      throw new Error('AI returned an unexpected campaign shape');
+    }
+    res.json({ fallback: false, ...parsed });
+  } catch (error: unknown) {
+    logError('ai.marketing', error, {});
+    res.json(marketingFallback({ salonName, city, slowHour, activePromotion, targetAudience }));
   }
 });
