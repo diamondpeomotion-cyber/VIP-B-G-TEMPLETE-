@@ -95,6 +95,8 @@ export interface StaffMember {
   specialties: string[];
   bio: string;
   photoUrl: string;
+  /** Owner-controlled switch: can customers book this specialist online? */
+  acceptingBookings: boolean;
 }
 
 export interface SiteBooking {
@@ -109,6 +111,7 @@ export interface SiteBooking {
   date: string;
   time: string;
   price: number;
+  duration: number;
   status: 'new' | 'confirmed' | 'completed' | 'cancelled';
   notes: string;
   createdAt: string;
@@ -145,4 +148,18 @@ export interface ConsultResult {
   styles: AISuggestion[];
   overallAdvice: string;
   recommendedStylistId: string;
+  /** True when the server served a curated local fallback (AI unreachable). */
+  fallback?: boolean;
+}
+
+export interface AvailabilitySlot {
+  time: string;
+  available: boolean;
+  reason?: 'booked' | 'past';
+}
+
+export interface AvailabilityResponse {
+  date: string;
+  serviceDuration: number;
+  slots: AvailabilitySlot[];
 }

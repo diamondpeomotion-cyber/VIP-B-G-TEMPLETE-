@@ -15,7 +15,7 @@ Built on the original *Nexora SalonOS* design system (dark luxury + gold, Playfa
 | **Onboarding** `/onboarding` | 6-step guided wizard: basics → brand & content → colors → services → team → contact → publish, with live slug-availability checks, curated image galleries, color presets and an instant full-site preview |
 | **Owner dashboard** `/dashboard` | Overview & stats with plan usage meters, website/content editor, services & prices, team, bookings inbox, AI marketing generator, publish/unpublish & domain management |
 | **Super-admin console** `/admin` | Platform overview, user management (roles, disable, delete), salon management (subscriptions, publish moderation, delete) and platform settings |
-| **Public salon site** `/s/:slug` | Fully themed, responsive website per salon: hero, services & prices, team, about, contact/map/WhatsApp, online booking, AI style consultant |
+| **Public salon site** `/s/:slug` | Fully themed, responsive website per salon: hero, services & prices, team, about, contact/map/WhatsApp, online booking with live slot availability, customer self-service (view/cancel own reservations), AI style consultant |
 | **Subdomain hosting** | `yourname.yourdomain.com` auto-detected when wildcard DNS exists (path URL always works) |
 | **Subscription plans** | `free` (10 services / 5 staff) · `pro` (50/20) · `premium` (100/50) — enforced server-side with HTTP 402 |
 | **Data layer** | SQLite (`better-sqlite3`, WAL) with foreign-key tenant isolation — zero demo data for real users |
@@ -111,12 +111,16 @@ Every query is scoped by `salon_id` / `user_id`; cross-tenant reads are impossib
 | `GET /api/slug-availability?slug=` | Normalized availability + reserved-word checks |
 | `POST /api/salon` · `GET/PUT /api/salon/mine` | Create / read / update own salon |
 | `POST|PUT|DELETE /api/salon/mine/services[/:id]` · `PUT /api/salon/mine/services` | Service CRUD + atomic bulk replace |
-| `POST|PUT|DELETE /api/salon/mine/staff[/:id]` · `PUT /api/salon/mine/staff` | Team CRUD + atomic bulk replace |
+| `POST|PUT|DELETE /api/salon/mine/staff[/:id]` · `PUT /api/salon/mine/staff` | Team CRUD + atomic bulk replace (`acceptingBookings` flag = **Online booking** toggle in Dashboard → Team) |
 | `GET /api/salon/mine/bookings` · `PATCH …/bookings/:id` | Booking inbox & status flow (`new → confirmed → completed / cancelled`) |
 | `POST /api/salon/mine/publish` `…/unpublish` `GET …/checklist` | Publish workflow with readiness checklist |
 | `GET /api/site/:slug` | Public site payload (owner-only `?preview=1` for drafts) |
-| `POST /api/site/:slug/bookings` | Public booking intake (validated + rate-limited) |
-| `POST /api/ai/consult` `POST /api/ai/marketing` | Gemini AI — salon-context aware, graceful local fallbacks |
+| `GET /api/site/:slug/availability?date&serviceId&staffId?` | Live slot grid for the booking modal (booked-window aware, rejects paused specialists) |
+| `POST /api/site/:slug/bookings` | Public booking intake (validated + rate-limited; 409 `SLOT_TAKEN` with alternate `suggestions` on conflict) |
+| `GET /api/site/:slug/bookings/lookup?email` | Customer self-service: reservation history by email link |
+| `POST /api/site/:slug/bookings/:id/cancel` | Customer self-service: cancel own booking (email ownership proof required) |
+| `GET /api/health` | Readiness probe (checks DB connectivity) |
+| `POST /api/ai/consult` `POST /api/ai/marketing` | Gemini AI — salon-context aware; always responds 200 with graceful local fallbacks (`fallback: true`) flagged in the UI |
 | `GET /api/admin/overview` · `GET /api/admin/users` · `PATCH/DELETE /api/admin/users/:id` | Super-admin: platform stats, user search, role/disable/delete management |
 | `GET /api/admin/salons` · `GET/PATCH/DELETE /api/admin/salons/:id` | Super-admin: every salon with counts, subscriptions, publish moderation |
 | `GET/PUT /api/admin/settings` | Super-admin: platform name, registration toggle, maintenance banner, default plan |
@@ -140,3 +144,13 @@ Every query is scoped by `salon_id` / `user_id`; cross-tenant reads are impossib
 5. Optionally set `GEMINI_API_KEY` for live AI responses.
 
 The database schema self-migrates on boot; no manual migration step is required.
+
+### ▲ Vercel
+
+A `vercel.json` ships with the repo:
+
+- **SPA rewrites** — every non-`/api/*` path serves `index.html`, so client-side routes (`/s/:slug`, `/dashboard`, `/demo`, …) work on refresh and deep links without SSR.
+- **Subdomain tenant sites** — configure a wildcard domain (`*.yourdomain.com`) on your Vercel project; the client router resolves `<slug>.yourdomain.com` to the matching salon site and falls back to the marketing page (never a crash page) for unknown subdomains. Reserved words (`www`, `app`, `admin`, `api`, `dashboard`, `demo`, …) and preview deployments (`*-*.vercel.app`) are always treated as the platform site.
+- **One-command build** — `npm run build` emits `dist/public` (static) + `dist/server.cjs` (Node). Point Vercel's output directory at `dist/public` for a static front-end, or run `node dist/server.cjs` on any Node host for the full API + SPA bundle.
+
+Run the end-to-end smoke suite against any environment with `npm run smoke [base-url]` (defaults to `http://127.0.0.1:3100`; set `SMOKE_ADMIN_EMAIL` to an `ADMIN_EMAILS` entry to cover the admin bootstrap).

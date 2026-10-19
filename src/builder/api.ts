@@ -14,11 +14,18 @@ export class ApiError extends Error {
 }
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, {
-    credentials: 'same-origin',
-    headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      credentials: 'same-origin',
+      headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+      ...options,
+    });
+  } catch {
+    // Offline / DNS / connection-reset — normalize to ApiError status 0 so
+    // every caller can offer a retry instead of crashing on a raw TypeError.
+    throw new ApiError('Network request failed. Check your connection and try again.', 0);
+  }
 
   let data: any = null;
   try {

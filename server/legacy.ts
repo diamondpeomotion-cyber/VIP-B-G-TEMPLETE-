@@ -319,11 +319,23 @@ legacyRouter.get('/api/appointments', (req, res) => {
   res.json(filtered);
 });
 
+const LEGACY_STATUSES = new Set(['booked', 'checked_in', 'completed', 'cancelled']);
+const LEGACY_PAY_STATUSES = new Set(['pending', 'paid', 'failed', 'refunded']);
+
 legacyRouter.post('/api/appointments', (req, res) => {
   const { tenantId, clientName, clientEmail, serviceId, stylistId, date, time, notes, paymentStatus } = req.body;
 
   if (!tenantId || !clientName || !serviceId || !stylistId || !date || !time) {
     return res.status(400).json({ error: 'Missing required appointment parameters' });
+  }
+  if (!TENANTS.some(t => t.id === tenantId)) {
+    return res.status(404).json({ error: 'Salon branch not found' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'Please choose a valid appointment date (YYYY-MM-DD).' });
+  }
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+    return res.status(400).json({ error: 'Please choose a valid time slot (HH:MM).' });
   }
 
   const service = SERVICES.find(s => s.id === serviceId);
@@ -332,8 +344,33 @@ legacyRouter.post('/api/appointments', (req, res) => {
   if (!service || !stylist) {
     return res.status(404).json({ error: 'Service or Stylist not found' });
   }
+  if ((service as any).tenantId !== tenantId) {
+    return res.status(400).json({ error: 'That service is not offered at this branch.' });
+  }
+  if (!(stylist as any).tenantIds?.includes(tenantId)) {
+    return res.status(400).json({ error: 'That specialist does not work at this branch.' });
+  }
 
-  const payStatObj = paymentStatus || 'pending';
+  // Demo double-booking guard: same specialist, same day, overlapping window.
+  const startMin = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+  const endMin = startMin + (service.duration || 30);
+  const clash = APPOINTMENTS.find(a => {
+    if (a.tenantId !== tenantId || a.stylistId !== stylistId || a.date !== date) return false;
+    const aStatus = a.status as string;
+    if (aStatus === 'cancelled' || aStatus === 'completed') return false;
+    const svc = SERVICES.find(s => s.id === a.serviceId);
+    const aStart = Number(a.time.slice(0, 2)) * 60 + Number(a.time.slice(3, 5));
+    const aEnd = aStart + (svc?.duration || 30);
+    return startMin < aEnd && aStart < endMin;
+  });
+  if (clash) {
+    return res.status(409).json({
+      error: `Sorry — ${stylist.name} is already booked around ${clash.time} on ${date}. Please pick another time.`,
+      code: 'SLOT_TAKEN',
+    });
+  }
+
+  const payStatObj = LEGACY_PAY_STATUSES.has(paymentStatus) ? paymentStatus : 'pending';
 
   const newApt = {
     id: `apt-${Date.now()}`,
@@ -393,6 +430,12 @@ legacyRouter.patch('/api/appointments/:id', (req, res) => {
   const aptIndex = APPOINTMENTS.findIndex(a => a.id === id);
   if (aptIndex === -1) {
     return res.status(404).json({ error: 'Appointment not found' });
+  }
+  if (status !== undefined && !LEGACY_STATUSES.has(status)) {
+    return res.status(400).json({ error: `Invalid status. Choose one of: ${Array.from(LEGACY_STATUSES).join(', ')}.` });
+  }
+  if (paymentStatus !== undefined && !LEGACY_PAY_STATUSES.has(paymentStatus)) {
+    return res.status(400).json({ error: `Invalid payment status. Choose one of: ${Array.from(LEGACY_PAY_STATUSES).join(', ')}.` });
   }
 
   const prevApt = APPOINTMENTS[aptIndex];

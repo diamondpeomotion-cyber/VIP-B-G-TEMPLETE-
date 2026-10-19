@@ -138,6 +138,8 @@ ensureColumn('users', 'disabled', 'INTEGER NOT NULL DEFAULT 0');        // admin
 ensureColumn('users', 'google_sub', "TEXT NOT NULL DEFAULT ''");        // linked Google subject id
 ensureColumn('salons', 'subscription_plan', "TEXT NOT NULL DEFAULT 'free'");     // free | pro | premium
 ensureColumn('salons', 'subscription_status', "TEXT NOT NULL DEFAULT 'active'"); // active | trialing | past_due | cancelled
+ensureColumn('salon_staff', 'accepting_bookings', 'INTEGER NOT NULL DEFAULT 1'); // specialist online-booking toggle
+ensureColumn('salon_bookings', 'duration', 'INTEGER NOT NULL DEFAULT 0');        // service minutes (slot-conflict engine)
 
 /** Per-plan content caps enforced on the backend (and surfaced in the UI). */
 export const PLANS = ['free', 'pro', 'premium'] as const;
@@ -290,6 +292,7 @@ export interface DbStaff {
   bio: string;
   photo_url: string;
   sort_order: number;
+  accepting_bookings: number;
 }
 
 export function toPublicStaff(row: DbStaff) {
@@ -302,6 +305,7 @@ export function toPublicStaff(row: DbStaff) {
       : [],
     bio: row.bio,
     photoUrl: row.photo_url,
+    acceptingBookings: row.accepting_bookings !== 0,
   };
 }
 
@@ -318,6 +322,7 @@ export interface DbBooking {
   date: string;
   time: string;
   price: number;
+  duration: number;
   status: string;
   notes: string;
   created_at: string;
@@ -336,6 +341,7 @@ export function toPublicBooking(row: DbBooking) {
     date: row.date,
     time: row.time,
     price: row.price,
+    duration: row.duration || 0,
     status: row.status,
     notes: row.notes,
     createdAt: row.created_at,

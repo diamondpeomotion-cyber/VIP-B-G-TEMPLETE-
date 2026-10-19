@@ -35,6 +35,7 @@ export default function App() {
   const [bookingTime, setBookingTime] = useState<string>('10:00');
   const [bookingNotes, setBookingNotes] = useState<string>('');
   const [bookingStatusSuccess, setBookingStatusSuccess] = useState<boolean>(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
 
   // Receptionist Quick Booking (Manual)
@@ -336,8 +337,13 @@ export default function App() {
   // Handle client booking submission
   const handleCreateBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBookingError(null);
     if (!bookingServiceId || !bookingStylistId || !bookingClientName) {
-      alert('Please fill out all booking attributes!');
+      setBookingError('Please choose a service, a specialist, and tell us your name before authorizing.');
+      return;
+    }
+    if (!bookingDate || !bookingTime) {
+      setBookingError('Please pick a session date and hour.');
       return;
     }
 
@@ -367,29 +373,35 @@ export default function App() {
         })
       });
 
-      if (res.ok) {
-        if (creditDeducted > 0) {
-          await fetch('/api/customer/apply-credit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount: creditDeducted })
-          });
-        }
-        
-        setBookingStatusSuccess(true);
-        setBookingClientName('');
-        setBookingClientEmail('');
-        setBookingNotes('');
-        fetchAppointments();
-        fetchCustomerInfo();
-        fetchWalletInfo();
-        setIsQuickBookingOpen(false);
-        setIsUsingWalletCredit(false);
-        // Clear message after short delay
-        setTimeout(() => setBookingStatusSuccess(false), 5000);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({} as any));
+        setBookingError(errData?.error || `Booking failed (${res.status}). Please try another slot.`);
+        return;
       }
+
+      if (creditDeducted > 0) {
+        await fetch('/api/customer/apply-credit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: creditDeducted })
+        });
+      }
+
+      setBookingError(null);
+      setBookingStatusSuccess(true);
+      setBookingClientName('');
+      setBookingClientEmail('');
+      setBookingNotes('');
+      fetchAppointments();
+      fetchCustomerInfo();
+      fetchWalletInfo();
+      setIsQuickBookingOpen(false);
+      setIsUsingWalletCredit(false);
+      // Clear message after short delay
+      setTimeout(() => setBookingStatusSuccess(false), 5000);
     } catch (e) {
       console.error(e);
+      setBookingError('Connection lost before your booking went through. Check your internet and retry.');
     } finally {
       setIsSubmittingBooking(false);
     }
@@ -1637,9 +1649,16 @@ export default function App() {
                           />
                         </div>
 
+                        {bookingError && (
+                          <div className="md:col-span-3 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded px-3 py-2.5 flex items-start gap-2">
+                            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                            <span>{bookingError}</span>
+                          </div>
+                        )}
+
                         <div className="md:col-span-3 flex justify-end gap-3 text-xs font-bold pt-2">
-                          <button 
-                            type="button" 
+                          <button
+                            type="button"
                             onClick={() => setIsQuickBookingOpen(false)}
                             className="bg-transparent hover:bg-stone-800 text-stone-400 border border-stone-800 px-4 py-2 rounded-sm"
                           >
@@ -2318,6 +2337,17 @@ export default function App() {
                        <div>
                          <strong className="text-sm block">Reservation Created Successfully!</strong>
                          <span className="text-xs text-stone-400">We have locked your schedule slot. Settle invoice on your active terminal log down below!</span>
+                       </div>
+                     </div>
+                   )}
+
+                  {/* Booking failure notice with recovery guidance */}
+                  {bookingError && (
+                     <div className="bg-red-500/10 border border-red-500/20 text-red-300 p-4 rounded-lg flex items-start gap-3">
+                       <AlertCircle size={20} className="shrink-0 mt-0.5" />
+                       <div>
+                         <strong className="text-sm block">Reservation could not be created</strong>
+                         <span className="text-xs text-stone-400">{bookingError}</span>
                        </div>
                      </div>
                    )}
@@ -3085,7 +3115,7 @@ export default function App() {
                                 onChange={e => setBookingClientName(e.target.value)}
                                 className="w-full bg-stone-950 text-[10.5px] border border-stone-855 rounded px-2.5 py-2 text-stone-200 outline-none focus:border-stone-600"
                               />
-                              <input 
+                              <input
                                 type="email"
                                 placeholder="Your Email Address"
                                 required
@@ -3093,13 +3123,16 @@ export default function App() {
                                 onChange={e => setBookingClientEmail(e.target.value)}
                                 className="w-full bg-stone-950 text-[10.5px] border border-stone-855 rounded px-2.5 py-2 text-stone-200 outline-none focus:border-stone-600"
                               />
+                              {bookingError && (
+                                <p className="text-[9.5px] text-red-400 bg-red-500/10 border border-red-500/20 rounded px-2 py-1.5 leading-snug">{bookingError}</p>
+                              )}
 
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.preventDefault();
                                   if (!bookingServiceId || !bookingStylistId || !bookingClientName || !bookingClientEmail) {
-                                    alert("Complete Step 1 (catalog service), Step 2 (expert stylist), and fill in Name/Email parameters before authorization.");
+                                    setBookingError("Complete Step 1 (catalog service), Step 2 (expert stylist), and fill in Name/Email parameters before authorization.");
                                     return;
                                   }
                                   handleCreateBooking(e);

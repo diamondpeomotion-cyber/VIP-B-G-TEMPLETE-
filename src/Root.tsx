@@ -49,19 +49,64 @@ export function Link(
 }
 
 /**
+ * Labels that can never be salon subdomains. MUST stay in sync with
+ * RESERVED_SLUGS in server/builder.ts (duplicated here because the client
+ * cannot import server modules without bundling Express).
+ */
+export const RESERVED_SUBDOMAINS = new Set([
+  'www', 'app', 'api', 'demo', 'dashboard', 'auth', 'onboarding', 'admin',
+  's', 'signup', 'login', 'logout', 'assets', 'static', 'media', 'mail',
+  'support', 'help', 'blog', 'status', 'cdn', 'ftp', 'nexora', 'root',
+]);
+
+/** Hosting suffixes where the first label is infrastructure, not a tenant. */
+const PREVIEW_HOST_SUFFIXES = [
+  '.e2b.app', // sandbox preview host ({port}-{id}.e2b.app)
+  '.vercel.app',
+  '.pages.dev',
+  '.netlify.app',
+  '.onrender.com',
+  '.railway.app',
+  '.fly.dev',
+];
+
+/**
  * Detects subdomain-based salon addresses: aria-glam.yourdomain.com → "aria-glam".
- * Never triggers on localhost, IPs, sandbox preview hosts, or reserved labels.
+ * Never triggers on localhost, IPs, preview/PaaS hosts, or reserved labels —
+ * those fall through to the normal path-based router instead of crashing
+ * into a tenant lookup for a nonsense slug.
  */
 export function slugFromHost(): string | null {
-  const host = window.location.hostname;
+  const host = (window.location.hostname || '').toLowerCase();
   if (!host || host === 'localhost' || host === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(host)) return null;
-  if (host.endsWith('.e2b.app')) return null; // sandbox preview host ({port}-{id}.e2b.app)
+  if (PREVIEW_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) return null;
   const parts = host.split('.');
   if (parts.length < 3) return null;
-  const sub = parts[0].toLowerCase();
-  if (/^\d+$/.test(sub) || /^\d+-/.test(sub)) return null; // port-like prefixes
-  if (['www', 'app', 'api', 'demo', 'dashboard', 'auth'].includes(sub)) return null;
+  const sub = parts[0];
+  if (!sub || /^\d+$/.test(sub) || /^\d+-/.test(sub)) return null; // port-like prefixes
+  if (RESERVED_SUBDOMAINS.has(sub)) return null;
+  if (!/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(sub)) return null;
   return sub;
+}
+
+/** True when the current page is served from a tenant subdomain host. */
+export function isTenantHost(): boolean {
+  return slugFromHost() !== null;
+}
+
+/**
+ * Builds a link to a platform route (/, /auth, /dashboard, …) that keeps
+ * working on tenant subdomain hosts. On `aria.yourdomain.com`, `/auth`
+ * would re-render the tenant site (the router always prefers the subdomain),
+ * so platform links are absolutized to the apex domain instead.
+ */
+export function platformPath(path: string): string {
+  if (!path.startsWith('/')) return path;
+  if (!isTenantHost()) return path;
+  const apex = window.location.hostname.toLowerCase().split('.').slice(1).join('.');
+  if (!apex) return path;
+  const port = window.location.port ? `:${window.location.port}` : '';
+  return `//${apex}${port}${path}`;
 }
 
 function usePath(): string {
@@ -88,8 +133,12 @@ function Router() {
   }
 
   // 2) Path-based salon website: /s/:slug
-  if (path.startsWith('/s/')) {
-    const slug = decodeURIComponent(path.slice(3).split('/')[0] || '');
+  if (path === '/s' || path === '/s/' || path.startsWith('/s/')) {
+    const slug = decodeURIComponent(path.slice(3).split('/')[0] || '').trim();
+    if (!slug) {
+      // Bare /s/ with no address — show the marketing site, not a broken lookup.
+      return <LandingPage />;
+    }
     const preview = new URLSearchParams(window.location.search).get('preview') === '1';
     return <PublicSite slug={slug} previewToken={preview} />;
   }
