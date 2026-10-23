@@ -111,12 +111,12 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
             {/* Appointment mini summary */}
             <div className="mb-6 rounded-xl bg-neutral-50 px-4 py-3 flex justify-between items-center border border-neutral-100">
               <div>
-                <p className="text-xs text-neutral-500 font-medium">Service Billing</p>
+                <p className="text-xs text-neutral-500 font-medium">Service Details</p>
                 <h4 className="text-sm font-bold text-neutral-800">{appointment.serviceName}</h4>
-                <p className="text-xs text-neutral-400 mt-0.5">Specialist: {appointment.stylistName}</p>
+                <p className="text-xs text-neutral-400 mt-0.5">Stylist: {appointment.stylistName}</p>
               </div>
               <div className="text-right">
-                <span className="text-xs font-mono font-bold text-neutral-400 uppercase">Total Payable</span>
+                <span className="text-xs font-mono font-bold text-neutral-400 uppercase">Total Bill Amount</span>
                 <p className="text-xl font-bold text-slate-900 font-mono">₹{appointment.paymentAmount.toLocaleString('en-IN')}</p>
               </div>
             </div>
@@ -149,7 +149,7 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
                     }`}
                   >
                     <CreditCard size={16} />
-                    <span>Card</span>
+                    <span>Debit/Credit Card</span>
                   </button>
                   <button
                     id="pay-tab-netbanking"
@@ -162,7 +162,7 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
                     }`}
                   >
                     <Building size={16} />
-                    <span>Netbanking</span>
+                    <span>Net Banking</span>
                   </button>
                   <button
                     id="pay-tab-cash"
@@ -175,7 +175,7 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
                     }`}
                   >
                     <ShieldCheck size={16} />
-                    <span>Cash Counter</span>
+                    <span>Cash at Counter</span>
                   </button>
                 </div>
 
@@ -192,7 +192,7 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
                         <p className="text-[11px] text-neutral-500 font-mono mt-2 font-medium">Scan with PhonePe, Google Pay, Paytm, or BHIM</p>
                       </div>
                       <div className="w-full text-left">
-                        <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider block mb-1">Enter UPI VPA ID</label>
+                        <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider block mb-1">Enter UPI ID</label>
                         <input
                           id="upi-id-input"
                           type="text"
@@ -223,7 +223,7 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider block mb-1 font-mono">Expiry</label>
+                          <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider block mb-1 font-mono">Expiry Date</label>
                           <input
                             id="card-expiry-input"
                             type="text"
@@ -255,7 +255,7 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
                   {method === 'netbanking' && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                       <div>
-                        <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider block mb-2">Select Preferred Indian Bank</label>
+                        <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider block mb-2">Select Your Bank</label>
                         <div className="grid grid-cols-2 gap-2">
                           {['HDFC Bank', 'State Bank of India (SBI)', 'ICICI Bank', 'Axis Bank', 'Kotak Mahindra', 'Bank of Baroda'].map(bank => (
                             <button
@@ -279,11 +279,11 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
 
                   {method === 'cash' && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2 text-center">
-                      <p className="text-xs font-bold text-amber-900 uppercase tracking-wide">Cash Counter Settlement</p>
+                      <p className="text-xs font-bold text-amber-900 uppercase tracking-wide">Pay Cash at Salon Counter</p>
                       <p className="text-xs text-neutral-600 leading-relaxed">
-                        Pay ₹{appointment.paymentAmount.toLocaleString('en-IN')} in cash directly at the Jaipur salon cash counter upon service completion.
+                        Pay ₹{appointment.paymentAmount.toLocaleString('en-IN')} cash at the Jaipur salon reception counter after your appointment.
                       </p>
-                      <p className="text-[10px] text-neutral-400 font-mono">Invoice and tax receipt will be issued instantly.</p>
+                      <p className="text-[10px] text-neutral-400 font-mono">Bill receipt will be given at the counter.</p>
                     </motion.div>
                   )}
                 </div>
@@ -298,11 +298,11 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
                   {loading ? (
                     <>
                       <RefreshCw size={18} className="animate-spin" />
-                      <span>Authorizing Razorpay Gateway...</span>
+                      <span>Processing Payment...</span>
                     </>
                   ) : (
                     <>
-                      <span>Pay ₹{appointment.paymentAmount.toLocaleString('en-IN')} Securely</span>
+                      <span>Pay ₹{appointment.paymentAmount.toLocaleString('en-IN')}</span>
                       <ArrowRight size={16} />
                     </>
                   )}
@@ -317,13 +317,13 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
                 <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500 mb-4 animate-bounce">
                   <CheckCircle2 size={44} />
                 </div>
-                <h4 className="text-lg font-bold text-neutral-800">Payment Captured Successfully!</h4>
-                <p className="text-sm text-neutral-500 mt-1 max-w-[280px]">Your Razorpay order has completed and triggered our SalonOS payment callback.</p>
+                <h4 className="text-lg font-bold text-neutral-800">Payment Successful!</h4>
+                <p className="text-sm text-neutral-500 mt-1 max-w-[280px]">Your payment has been received successfully and your booking is confirmed.</p>
                 
-                {/* Simulated webhook log notification */}
+                {/* Simulated receipt info */}
                 <div className="mt-5 w-full bg-slate-900 p-3 rounded-lg text-left hidden sm:block">
-                  <p className="text-[10px] text-emerald-400 font-mono uppercase tracking-widest font-bold">Background Webhook Streamed</p>
-                  <p className="text-[10px] text-zinc-400 font-mono mt-1 font-bold">Event: payment.captured</p>
+                  <p className="text-[10px] text-emerald-400 font-mono uppercase tracking-widest font-bold">Payment Receipt Verified</p>
+                  <p className="text-[10px] text-zinc-400 font-mono mt-1 font-bold">Status: Payment Received (✓)</p>
                   <p className="text-[10px] text-zinc-500 font-mono shrink mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis">
                     Txn ID: {payloadLog?.transactionId} | Order: {payloadLog?.orderId}
                   </p>
@@ -334,7 +334,7 @@ export default function PaymentModal({ isOpen, onClose, appointment, onSuccess }
             {/* Bottom Safe Badge */}
             <div className="mt-6 pt-4 border-t border-neutral-100 flex items-center justify-center gap-1.5 text-neutral-400 font-medium">
               <ShieldCheck size={14} className="text-slate-800" />
-              <span className="text-[10px] uppercase font-mono tracking-widest">PCI-DSS Compliant • SSL Encryption</span>
+              <span className="text-[10px] uppercase font-mono tracking-widest">100% Safe & Secure Payment</span>
             </div>
           </div>
         </motion.div>

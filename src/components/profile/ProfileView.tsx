@@ -137,7 +137,7 @@ export function ProfileView({
     } catch (err: any) {
       setReferralFeedback({
         type: 'error',
-        message: 'Could not dispatch referral invitation. Please try again.'
+        message: 'Could not send referral invitation. Please try again.'
       });
     } finally {
       setIsSendingReferral(false);
@@ -167,6 +167,47 @@ export function ProfileView({
     .filter(a => a.paymentStatus === 'paid')
     .reduce((sum, a) => sum + (a.paymentAmount || 0), 0);
 
+  const getLoyaltyTier = (spent: number) => {
+    if (spent >= 50000) {
+      return { 
+        name: 'Platinum Tier (15% Cashback)', 
+        level: 'platinum', 
+        rewardPct: 15, 
+        color: '#e5e7eb', 
+        bg: 'bg-stone-200/20 border-stone-300/40 text-stone-200', 
+        nextThreshold: 50000, 
+        progress: 100,
+        perks: '15% Reward Cashback + VIP Concierge & Complimentary Refreshments' 
+      };
+    } else if (spent >= 10000) {
+      const progress = Math.min(100, Math.round(((spent - 10000) / (50000 - 10000)) * 100));
+      return { 
+        name: 'Diamond Tier (10% Cashback)', 
+        level: 'diamond', 
+        rewardPct: 10, 
+        color: '#38bdf8', 
+        bg: 'bg-sky-500/20 border-sky-500/40 text-sky-300', 
+        nextThreshold: 50000, 
+        progress,
+        perks: '10% Reward Cashback + Priority Booking Access' 
+      };
+    } else {
+      const progress = Math.min(100, Math.round((spent / 10000) * 100));
+      return { 
+        name: 'Gold Tier (5% Cashback)', 
+        level: 'gold', 
+        rewardPct: 5, 
+        color: '#c5a059', 
+        bg: 'bg-[#c5a059]/20 border-[#c5a059]/40 text-[#c5a059]', 
+        nextThreshold: 10000, 
+        progress,
+        perks: '5% Reward Cashback on All Bookings & Referrals' 
+      };
+    }
+  };
+
+  const currentLoyalty = getLoyaltyTier(totalSpent);
+
   return (
     <div id="client-my-profile-container" className="space-y-6">
       
@@ -191,8 +232,8 @@ export function ProfileView({
                 <h2 className="text-2xl md:text-3xl font-serif italic text-white font-medium">
                   {formData.name || 'Royal Tresses Valued Client'}
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full text-[9px] uppercase font-mono font-bold tracking-wider bg-[#c5a059]/15 border border-[#c5a059]/30 text-[#c5a059]">
-                  Jaipur VIP Prestige Tier
+                <span className={`px-2.5 py-0.5 rounded-full text-[9px] uppercase font-mono font-bold tracking-wider border ${currentLoyalty.bg}`}>
+                  👑 {currentLoyalty.name}
                 </span>
               </div>
               
@@ -277,7 +318,7 @@ export function ProfileView({
           }`}
         >
           <User size={14} />
-          <span>Contact Info & Preferences</span>
+          <span>My Details & Preferences</span>
           {isDirty && (
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse ml-1" title="Unsaved changes"></span>
           )}
@@ -293,7 +334,7 @@ export function ProfileView({
           }`}
         >
           <Calendar size={14} />
-          <span>Appointment History ({appointments.length})</span>
+          <span>My Appointments ({appointments.length})</span>
         </button>
 
         <button
@@ -306,7 +347,7 @@ export function ProfileView({
           }`}
         >
           <Gift size={14} />
-          <span>Referral Rewards & Wallet (₹{customerWalletBalance.toLocaleString('en-IN')})</span>
+          <span>Rewards & Wallet (₹{customerWalletBalance.toLocaleString('en-IN')})</span>
         </button>
       </div>
 
@@ -347,20 +388,20 @@ export function ProfileView({
             </div>
           )}
 
-          {/* Section 1: Contact Coordinates */}
+          {/* Section 1: Contact Details */}
           <div className="bg-[#121214] border border-[#2a2a2d] p-6 rounded-xl space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-[#2a2a2d]">
               <div>
                 <h3 className="text-base font-serif italic text-white flex items-center gap-2">
                   <User size={16} className="text-[#c5a059]" />
-                  Contact Information & Client Credentials
+                  Contact Information & Details
                 </h3>
                 <p className="text-[11px] text-stone-400 mt-0.5">
-                  Update your personal details used for reservation confirmation alerts and concierge check-in.
+                  Update your contact details for appointment confirmations and salon reminders.
                 </p>
               </div>
               <span className="text-[10px] font-mono uppercase bg-stone-850 px-2 py-0.5 rounded text-stone-400">
-                Primary Account
+                My Account
               </span>
             </div>
 
@@ -374,7 +415,7 @@ export function ProfileView({
                   required
                   value={formData.name}
                   onChange={e => handleInputChange('name', e.target.value)}
-                  placeholder="e.g. Julianne Moore"
+                  placeholder="e.g. Ananya Singhania"
                   className="w-full bg-[#0a0a0b] text-xs border border-[#2a2a2d] rounded-md px-3.5 py-2.5 text-stone-200 outline-none focus:border-[#c5a059] transition"
                 />
               </div>
@@ -388,7 +429,7 @@ export function ProfileView({
                   required
                   value={formData.email}
                   onChange={e => handleInputChange('email', e.target.value)}
-                  placeholder="client@nexora.com"
+                  placeholder="ananya@example.com"
                   className="w-full bg-[#0a0a0b] text-xs border border-[#2a2a2d] rounded-md px-3.5 py-2.5 text-stone-200 outline-none focus:border-[#c5a059] transition"
                 />
               </div>
@@ -402,7 +443,7 @@ export function ProfileView({
                   required
                   value={formData.phone}
                   onChange={e => handleInputChange('phone', e.target.value)}
-                  placeholder="+1 (555) 234-5678"
+                  placeholder="+91 98290 12345"
                   className="w-full bg-[#0a0a0b] text-xs border border-[#2a2a2d] rounded-md px-3.5 py-2.5 text-stone-200 outline-none focus:border-[#c5a059] transition"
                 />
               </div>
@@ -412,13 +453,13 @@ export function ProfileView({
             <div className="pt-2">
               <label className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-2 font-semibold flex items-center gap-1.5">
                 <Bell size={13} className="text-[#c5a059]" />
-                Appointment Reminders & Notification Channel
+                Appointment Reminders
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
-                  { id: 'both', label: 'SMS & Email', desc: 'Instant text dispatch + digital calendar calendar invite' },
-                  { id: 'sms', label: 'SMS Only', desc: 'Text reminders 2 hours before scheduled slot' },
-                  { id: 'email', label: 'Email Only', desc: 'Quiet receipts and PDF treatment summaries' },
+                  { id: 'both', label: 'SMS & Email', desc: 'SMS text reminder and calendar invite' },
+                  { id: 'sms', label: 'SMS Only', desc: 'SMS reminder 2 hours before appointment' },
+                  { id: 'email', label: 'Email Only', desc: 'Email receipt and appointment details' },
                 ].map(opt => (
                   <button
                     key={opt.id}
@@ -443,20 +484,20 @@ export function ProfileView({
             </div>
           </div>
 
-          {/* Section 2: Salon & Biological Preferences */}
+          {/* Section 2: Salon & Hair Preferences */}
           <div className="bg-[#121214] border border-[#2a2a2d] p-6 rounded-xl space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-[#2a2a2d]">
               <div>
                 <h3 className="text-base font-serif italic text-white flex items-center gap-2">
                   <Scissors size={16} className="text-[#c5a059]" />
-                  Atelier & Styling Architecture Preferences
+                  Hair, Skin & Styling Preferences
                 </h3>
                 <p className="text-[11px] text-stone-400 mt-0.5">
-                  Helps our master stylists customize formulas, thermal temperatures, and appointment preparation.
+                  Helps our stylists prepare the right hair care products, shampoo, and styling for you.
                 </p>
               </div>
               <span className="text-[10px] font-mono uppercase bg-[#c5a059]/10 text-[#c5a059] px-2 py-0.5 rounded">
-                Personalized Formula
+                Saved Preferences
               </span>
             </div>
 
@@ -480,14 +521,14 @@ export function ProfileView({
 
               <div>
                 <label className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-1.5 font-semibold">
-                  Preferred Specialist Stylist
+                  Preferred Stylist
                 </label>
                 <select
                   value={formData.preferredStylist}
                   onChange={e => handleInputChange('preferredStylist', e.target.value)}
                   className="w-full bg-[#0a0a0b] text-xs border border-[#2a2a2d] rounded-md px-3.5 py-2.5 text-stone-200 outline-none focus:border-[#c5a059] transition cursor-pointer"
                 >
-                  <option value="">No preference (Auto-match best available)</option>
+                  <option value="">No preference (Any available stylist)</option>
                   {stylists.map(st => (
                     <option key={st.id} value={st.name}>
                       {st.name} — {st.specialties.join(', ')}
@@ -498,40 +539,40 @@ export function ProfileView({
 
               <div>
                 <label className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-1.5 font-semibold">
-                  Hair Biological Texture
+                  Hair Type
                 </label>
                 <select
                   value={formData.hairTexture}
                   onChange={e => handleInputChange('hairTexture', e.target.value)}
                   className="w-full bg-[#0a0a0b] text-xs border border-[#2a2a2d] rounded-md px-3.5 py-2.5 text-stone-200 outline-none focus:border-[#c5a059] transition cursor-pointer"
                 >
-                  <option value="Straight / Fine">Straight / Fine</option>
-                  <option value="Wavy / Textured">Wavy / Textured</option>
-                  <option value="Coarse / Curly">Coarse / Curly</option>
-                  <option value="Kinky / Coiled">Kinky / Coiled</option>
+                  <option value="Straight / Fine">Straight / Thin Hair</option>
+                  <option value="Wavy / Textured">Wavy Hair</option>
+                  <option value="Coarse / Curly">Thick / Curly Hair</option>
+                  <option value="Kinky / Coiled">Frizzy / Deep Curls</option>
                 </select>
               </div>
 
               <div>
                 <label className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-1.5 font-semibold">
-                  Facial Structural Contour
+                  Face Shape
                 </label>
                 <select
                   value={formData.facialShape}
                   onChange={e => handleInputChange('facialShape', e.target.value)}
                   className="w-full bg-[#0a0a0b] text-xs border border-[#2a2a2d] rounded-md px-3.5 py-2.5 text-stone-200 outline-none focus:border-[#c5a059] transition cursor-pointer"
                 >
-                  <option value="Oval Contour">Oval Contour</option>
-                  <option value="Square Contour">Square Contour</option>
-                  <option value="Round Contour">Round Contour</option>
-                  <option value="Heart Contour">Heart Contour</option>
+                  <option value="Oval Contour">Oval Face</option>
+                  <option value="Square Contour">Square Face</option>
+                  <option value="Round Contour">Round Face</option>
+                  <option value="Heart Contour">Heart-shaped Face</option>
                 </select>
               </div>
 
               <div className="md:col-span-2">
                 <label className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-1.5 font-semibold flex items-center gap-1.5">
                   <Coffee size={13} className="text-[#c5a059]" />
-                  Complimentary Hospitality Beverage
+                  Complimentary Welcome Drink
                 </label>
                 <input
                   type="text"
@@ -544,7 +585,7 @@ export function ProfileView({
 
               <div className="md:col-span-2">
                 <label className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-1.5 font-semibold">
-                  Scalp, Skin Sensitivities & Allergies
+                  Skin Sensitivities & Allergies
                 </label>
                 <input
                   type="text"
@@ -782,6 +823,99 @@ export function ProfileView({
       {/* Tab 3: Referral Rewards & Glow Digital Wallet */}
       {activeTab === 'rewards' && (
         <div className="space-y-6">
+
+          {/* Multi-Tiered Loyalty Program Status Card */}
+          <div className="bg-gradient-to-r from-[#161619] via-[#1c1c21] to-[#161619] border border-[#c5a059]/40 p-6 rounded-xl relative overflow-hidden space-y-4">
+            <div className="absolute top-0 right-0 bg-[#c5a059] text-black font-mono text-[9px] font-extrabold px-3.5 py-1 rounded-bl-lg uppercase tracking-widest">
+              LOYALTY REWARDS
+            </div>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider ${currentLoyalty.bg}`}>
+                    👑 {currentLoyalty.name} Active ({currentLoyalty.rewardPct}% Rewards Rate)
+                  </span>
+                  <span className="text-xs text-stone-400 font-mono">Total Salon Spend: ₹{totalSpent.toLocaleString('en-IN')}</span>
+                </div>
+                <h3 className="text-2xl font-serif italic text-white">Loyalty Club & Discount Rewards</h3>
+                <p className="text-xs text-stone-400 mt-1 max-w-xl">
+                  Get discount cashback on all your salon visits. The more appointments you book, the higher your reward level!
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <div className={`px-3 py-2 rounded-lg border text-center ${currentLoyalty.bg}`}>
+                  <span className="text-[9px] font-mono uppercase block text-stone-400">Current Discount</span>
+                  <span className="text-lg font-bold font-mono">{currentLoyalty.rewardPct}% Back</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress bar to next tier */}
+            {currentLoyalty.level !== 'platinum' && (
+              <>
+                <div className="space-y-1.5 pt-2 border-t border-[#2a2a2d]">
+                  <div className="flex justify-between items-center text-[11px] font-mono">
+                    <span className="text-stone-400">Total spending needed for {currentLoyalty.level === 'gold' ? 'Diamond Level (₹10,000 Spend)' : 'Platinum Level (₹50,000 Spend)'}</span>
+                    <span className="text-[#c5a059] font-bold">{currentLoyalty.progress}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-stone-900 rounded-full overflow-hidden border border-stone-800">
+                    <div className="h-full bg-gradient-to-r from-[#c5a059] to-amber-300 transition-all duration-500" style={{ width: `${currentLoyalty.progress}%` }} />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 pt-2 border-t border-[#2a2a2d]/50">
+                  <div className="flex justify-between items-center text-[11px] font-mono">
+                    <span className="text-stone-400">
+                      {currentLoyalty.level === 'gold' 
+                        ? `Friends to invite: ${Math.max(0, 2 - referrals.length)} more friend invite(s) to reach Diamond Level`
+                        : `Friends to invite: ${Math.max(0, 6 - referrals.length)} more friend invite(s) to reach Platinum Level`}
+                    </span>
+                    <span className="text-emerald-400 font-bold">
+                      {currentLoyalty.level === 'gold' ? `${referrals.length} / 2 Friends` : `${referrals.length} / 6 Friends`}
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-stone-900 rounded-full overflow-hidden border border-stone-800">
+                    <div 
+                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500" 
+                      style={{ 
+                        width: `${currentLoyalty.level === 'gold' 
+                          ? Math.min(100, (referrals.length / 2) * 100) 
+                          : Math.min(100, ((referrals.length - 2) / 4) * 100)}%` 
+                      }} 
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Tier Benefits Overview Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+              <div className={`p-3 rounded-lg border ${totalSpent < 10000 ? 'bg-[#c5a059]/15 border-[#c5a059]' : 'bg-[#0a0a0b]/60 border-stone-800'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs font-serif font-bold text-white">💛 Gold Level</span>
+                  <span className="text-[10px] font-mono text-[#c5a059] font-bold">5% Back</span>
+                </div>
+                <p className="text-[10px] text-stone-400">Under ₹10,000 salon spend. 5% cashback on all bookings.</p>
+              </div>
+
+              <div className={`p-3 rounded-lg border ${totalSpent >= 10000 && totalSpent < 50000 ? 'bg-sky-500/15 border-sky-500' : 'bg-[#0a0a0b]/60 border-stone-800'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs font-serif font-bold text-white">💎 Diamond Level</span>
+                  <span className="text-[10px] font-mono text-sky-400 font-bold">10% Back</span>
+                </div>
+                <p className="text-[10px] text-stone-400">₹10,000 – ₹49,999 spend. 10% cashback + priority appointments.</p>
+              </div>
+
+              <div className={`p-3 rounded-lg border ${totalSpent >= 50000 ? 'bg-stone-200/20 border-stone-300' : 'bg-[#0a0a0b]/60 border-stone-800'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs font-serif font-bold text-white">✨ Platinum Level</span>
+                  <span className="text-[10px] font-mono text-stone-200 font-bold">15% Back</span>
+                </div>
+                <p className="text-[10px] text-stone-400">₹50,000+ spend. 15% cashback + free snacks & welcome drinks.</p>
+              </div>
+            </div>
+          </div>
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
@@ -789,34 +923,34 @@ export function ProfileView({
             <div className="bg-[#121214] border border-[#2a2a2d] p-6 rounded-xl flex flex-col justify-between space-y-6 col-span-1">
               <div>
                 <span className="px-2 py-0.5 bg-[#c5a059]/10 text-[#c5a059] text-[9px] font-mono font-bold rounded uppercase">
-                  Digital Ledger Escrow
+                  Salon Wallet
                 </span>
-                <h3 className="text-xl font-serif italic text-white mt-2">Personal Glow Wallet</h3>
+                <h3 className="text-xl font-serif italic text-white mt-2">My Salon Wallet Balance</h3>
                 <p className="text-xs text-stone-400 mt-1 leading-relaxed">
-                  Referral bounties and seasonal credits stored in your client balance. Redeemable on any salon treatment.
+                  Your referral reward money and festival discount credits. Use them for instant discount on any haircut or treatment.
                 </p>
               </div>
 
               <div className="p-6 bg-[#0a0a0b] border border-stone-800 rounded-xl text-center space-y-1">
                 <span className="text-[10px] text-stone-500 uppercase font-mono font-bold tracking-widest block">
-                  Available Credits
+                  Available Balance
                 </span>
                 <h4 className="text-4xl md:text-5xl font-serif text-[#c5a059] font-bold font-mono">
                   ₹{customerWalletBalance.toLocaleString('en-IN')}
                 </h4>
                 <p className="text-[10px] text-emerald-400 font-mono pt-1">
-                  Ready to apply at session checkout
+                  Ready to use on your next bill
                 </p>
               </div>
 
               <div className="space-y-2 text-[11px] text-stone-400 font-sans border-t border-[#2a2a2d] pt-4">
                 <p className="flex items-center gap-2">
                   <CheckCircle2 size={13} className="text-[#c5a059]" />
-                  <span>Earn ₹500 for every friend who books</span>
+                  <span>Get ₹500 discount for every friend you invite</span>
                 </p>
                 <p className="flex items-center gap-2">
                   <CheckCircle2 size={13} className="text-[#c5a059]" />
-                  <span>Instant balance discount deduction on invoices</span>
+                  <span>Instant deduction on your salon bill</span>
                 </p>
               </div>
             </div>
@@ -827,10 +961,10 @@ export function ProfileView({
                 <div>
                   <h3 className="text-base font-serif italic text-white flex items-center gap-2">
                     <Gift size={16} className="text-[#c5a059]" />
-                    Share the Glow & Earn ₹500
+                    Invite Friends & Get ₹500 Off
                   </h3>
                   <p className="text-[11px] text-stone-400 mt-0.5">
-                    Send an exclusive VIP invitation. When your referee registers in the salon database, your wallet immediately receives ₹500!
+                    Invite your friends to Royal Tresses Jaipur! When they register, ₹500 is added to your wallet right away.
                   </p>
                 </div>
               </div>
@@ -847,10 +981,10 @@ export function ProfileView({
                 </div>
               )}
 
-              {/* Dispatch form */}
+              {/* Send invite form */}
               <form onSubmit={handleSendReferral} className="p-4 bg-[#0a0a0b] border border-[#2a2a2d] rounded-lg space-y-3">
                 <label className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block font-semibold">
-                  Send Referral Invitation to Friend's Email
+                  Friend's Email Address
                 </label>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <input
@@ -858,7 +992,7 @@ export function ProfileView({
                     required
                     value={referralEmail}
                     onChange={e => setReferralEmail(e.target.value)}
-                    placeholder="friend.glow@example.com"
+                    placeholder="friend.email@example.com"
                     className="flex-1 bg-[#121214] text-xs border border-[#2a2a2d] rounded px-3.5 py-2.5 text-stone-200 outline-none focus:border-[#c5a059]"
                   />
                   <button
@@ -874,7 +1008,7 @@ export function ProfileView({
                     ) : (
                       <>
                         <Gift size={13} />
-                        <span>Dispatch ₹500 Reward</span>
+                        <span>Send ₹500 Invite</span>
                       </>
                     )}
                   </button>
@@ -885,7 +1019,7 @@ export function ProfileView({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs uppercase font-mono tracking-wider text-stone-400 font-bold">
-                    Successful Referrals History ({referrals.length})
+                    Friends You Have Invited ({referrals.length})
                   </h4>
                   <span className="text-[10px] font-mono text-emerald-400">
                     Total Earned: ₹{(referrals.length * 500).toLocaleString('en-IN')}
@@ -895,7 +1029,7 @@ export function ProfileView({
                 <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                   {referrals.length === 0 ? (
                     <div className="p-6 text-center bg-[#0a0a0b] border border-[#2a2a2d] rounded-lg text-stone-500 text-xs italic">
-                      No referral invitations dispatched yet. Invite your friends above!
+                      No friends invited yet. Enter an email above to invite!
                     </div>
                   ) : (
                     referrals.map(ref => (
@@ -927,6 +1061,78 @@ export function ProfileView({
 
             </div>
 
+          </div>
+
+          {/* Top 5 Referrers Social Competition Leaderboard Component */}
+          <div className="bg-[#121214] border border-[#c5a059]/30 p-6 rounded-xl space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-3 border-b border-[#2a2a2d]">
+              <div>
+                <span className="p-1 px-1.5 bg-[#c5a059]/10 text-[#c5a059] rounded font-mono text-[9px] font-bold uppercase tracking-wider">
+                  Customer Leaderboard
+                </span>
+                <h3 className="text-xl font-serif italic text-white mt-1">Top 5 Jaipur Referrers (Most Friends Invited)</h3>
+                <p className="text-xs text-stone-400">
+                  Our top clients who referred friends and earned maximum salon discounts in Jaipur.
+                </p>
+              </div>
+              <div className="bg-[#0a0a0b] border border-[#2a2a2d] px-3 py-1.5 rounded-lg text-right">
+                <span className="text-[9px] font-mono text-stone-400 block uppercase">Your Rank</span>
+                <span className="text-xs font-mono font-bold text-[#c5a059]">
+                  Rank #{Math.max(1, 6 - referrals.length)} ({referrals.length} Referrals)
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              {[
+                { rank: 1, name: profile.name || 'Ananya Singhania', branch: 'C-Scheme Executive', count: Math.max(8, referrals.length + 3), earned: (Math.max(8, referrals.length + 3) * 500), tier: 'Platinum' },
+                { rank: 2, name: 'Vikram Rathore', branch: 'Malviya Nagar Elite', count: 6, earned: 3000, tier: 'Platinum' },
+                { rank: 3, name: 'Natasha Sharma', branch: 'Vaishali Nagar Chic', count: 5, earned: 2500, tier: 'Diamond' },
+                { rank: 4, name: 'Siddharth Jaipuria', branch: 'C-Scheme Executive', count: 4, earned: 2000, tier: 'Diamond' },
+                { rank: 5, name: 'Priya Mehta', branch: 'Malviya Nagar Elite', count: 3, earned: 1500, tier: 'Gold' },
+              ].map((leader) => {
+                const isCurrentUser = leader.name === (profile.name || 'Ananya Singhania');
+                return (
+                  <div
+                    key={leader.rank}
+                    className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition ${
+                      isCurrentUser
+                        ? 'bg-[#c5a059]/15 border-[#c5a059]/60 shadow-lg'
+                        : 'bg-[#0a0a0b] border-[#2a2a2d] hover:border-stone-700'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <span className={`w-8 h-8 rounded-full flex items-center justify-center font-mono font-bold text-xs ${
+                        leader.rank === 1 ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' :
+                        leader.rank === 2 ? 'bg-stone-300 text-black' :
+                        leader.rank === 3 ? 'bg-amber-700 text-amber-100' :
+                        'bg-stone-800 text-stone-300'
+                      }`}>
+                        {leader.rank === 1 ? '👑' : `#${leader.rank}`}
+                      </span>
+                      {isCurrentUser && (
+                        <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold uppercase bg-[#c5a059] text-black">
+                          You
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <h5 className="text-xs font-serif font-bold text-white truncate">{leader.name}</h5>
+                      <p className="text-[10px] text-stone-400 truncate mt-0.5">{leader.branch}</p>
+                      <p className="text-[9px] text-[#c5a059] font-mono mt-1 font-semibold">{leader.tier} Tier</p>
+                    </div>
+
+                    <div className="pt-2 border-t border-[#2a2a2d] flex justify-between items-baseline">
+                      <span className="text-[9px] font-mono text-stone-500 uppercase">{leader.count} Ref.</span>
+                      <span className="font-mono text-xs font-bold text-emerald-400">
+                        ₹{leader.earned.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
         </div>
