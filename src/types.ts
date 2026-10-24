@@ -91,4 +91,5 @@ export interface CustomerProfile {
   notificationPreference: 'sms' | 'email' | 'both';
   allergiesOrSensitivities: string;
   specialInstructions: string;
+  savedSalons?: string[];
 }

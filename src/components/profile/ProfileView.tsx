@@ -33,7 +33,7 @@ export function ProfileView({
   onRefreshData,
 }: ProfileViewProps) {
   // Navigation sub-tab inside profile
-  const [activeTab, setActiveTab] = useState<'info' | 'appointments' | 'rewards'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'appointments' | 'rewards' | 'wishlist'>('info');
 
   // Editable Form State
   const [formData, setFormData] = useState<CustomerProfile>(profile);
@@ -348,6 +348,19 @@ export function ProfileView({
         >
           <Gift size={14} />
           <span>Rewards & Wallet (₹{customerWalletBalance.toLocaleString('en-IN')})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('wishlist')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-mono uppercase font-bold tracking-wider transition cursor-pointer ${
+            activeTab === 'wishlist'
+              ? 'bg-[#c5a059] text-black shadow'
+              : 'text-stone-400 hover:text-white hover:bg-[#121214]'
+          }`}
+        >
+          <Heart size={14} />
+          <span>Saved Salons ({formData.savedSalons?.length || 0})</span>
         </button>
       </div>
 
@@ -1135,6 +1148,101 @@ export function ProfileView({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* Tab 4: Saved Salons & Wishlist */}
+      {activeTab === 'wishlist' && (
+        <div className="space-y-4">
+          <div className="bg-[#121214] border border-[#2a2a2d] p-6 rounded-xl space-y-4">
+            <div className="flex justify-between items-center pb-4 border-b border-[#2a2a2d]">
+              <div>
+                <h3 className="text-base font-serif italic text-white flex items-center gap-2">
+                  <Heart size={16} className="text-[#c5a059] fill-[#c5a059]" />
+                  Saved Salons & Beauty Parlours (Wishlist)
+                </h3>
+                <p className="text-[11px] text-stone-400 mt-0.5">
+                  Your bookmarked luxury beauty salons and hair studios across Jaipur.
+                </p>
+              </div>
+              <span className="text-[10px] font-mono bg-[#c5a059]/10 text-[#c5a059] px-2 py-0.5 rounded">
+                {formData.savedSalons?.length || 0} Bookmarked
+              </span>
+            </div>
+
+            {(!formData.savedSalons || formData.savedSalons.length === 0) ? (
+              <div className="p-12 text-center bg-[#0a0a0b] rounded-lg border border-[#2a2a2d] space-y-3">
+                <Heart size={32} className="mx-auto text-stone-600" />
+                <h4 className="text-sm font-serif italic text-white">No Salons Saved in Wishlist Yet</h4>
+                <p className="text-xs text-stone-400 max-w-sm mx-auto">
+                  Browse our salon discovery listing and click the heart icon on any beauty parlour to bookmark it here for quick access.
+                </p>
+                {/* Default showcase saved salon */}
+                <div className="pt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = {
+                        ...formData,
+                        savedSalons: ['downtown-executive', 'uptown-chic']
+                      };
+                      setFormData(updated);
+                      setIsDirty(true);
+                    }}
+                    className="bg-[#c5a059] text-black text-xs font-mono font-bold uppercase tracking-wider px-4 py-2 rounded transition hover:bg-[#b08c49] cursor-pointer"
+                  >
+                    Load Sample Jaipur Wishlist Salons
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {tenants
+                  .filter(t => formData.savedSalons?.includes(t.id))
+                  .map(salon => (
+                    <div key={salon.id} className="p-4 bg-[#0a0a0b] border border-[#2a2a2d] hover:border-[#c5a059]/40 rounded-lg flex flex-col justify-between space-y-3">
+                      <div>
+                        <div className="flex justify-between items-start">
+                          <span className="text-[9px] font-mono text-[#c5a059] bg-[#c5a059]/10 border border-[#c5a059]/20 px-2 py-0.5 rounded">
+                            📍 {salon.city}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = {
+                                ...formData,
+                                savedSalons: formData.savedSalons?.filter(id => id !== salon.id)
+                              };
+                              setFormData(updated);
+                              setIsDirty(true);
+                            }}
+                            className="text-red-400 hover:text-red-300 text-xs p-1"
+                            title="Remove from saved"
+                          >
+                            ♥ Remove
+                          </button>
+                        </div>
+                        <h4 className="text-sm font-serif italic text-white font-bold mt-2">{salon.name}</h4>
+                        <p className="text-xs text-stone-400 mt-1">{salon.address}</p>
+                      </div>
+
+                      <div className="pt-3 border-t border-[#2a2a2d] flex justify-between items-center text-xs">
+                        <span className="text-amber-400 font-mono font-bold">{salon.rating} ★ Rating</span>
+                        {onNavigateToBooking && (
+                          <button
+                            type="button"
+                            onClick={() => onNavigateToBooking()}
+                            className="bg-[#c5a059] text-black text-[10px] font-mono font-bold uppercase tracking-wider px-3 py-1.5 rounded transition hover:bg-[#b08c49] cursor-pointer"
+                          >
+                            Book Visit →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

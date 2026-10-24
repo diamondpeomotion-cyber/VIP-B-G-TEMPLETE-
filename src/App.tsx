@@ -8,6 +8,7 @@ import {
 import { Role, Tenant, SalonService, Stylist, Appointment, AISolution, CampaignTemplate, CustomerProfile } from './types';
 import PaymentModal from './components/PaymentModal';
 import ProfileView from './components/profile/ProfileView';
+import StylistPortfolioModal from './components/StylistPortfolioModal';
 
 export default function App() {
   // Navigation & Role States
@@ -25,6 +26,7 @@ export default function App() {
   // Selected items & interactive triggers
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState<boolean>(false);
+  const [selectedPortfolioStylist, setSelectedPortfolioStylist] = useState<Stylist | null>(null);
   
   // Client Booking Form States
   const [bookingClientName, setBookingClientName] = useState<string>('');
@@ -2525,43 +2527,81 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Step 2: Assign Stylist */}
+                       {/* Step 2: Assign Stylist */}
                       <div>
-                        <label className="text-[10px] uppercase tracking-wider text-stone-400 font-mono block mb-3 font-semibold">
-                          Step 3: Appoint Certified Specialist Stylist
-                        </label>
+                        <div className="flex justify-between items-center mb-3">
+                          <label className="text-[10px] uppercase tracking-wider text-stone-400 font-mono font-semibold">
+                            Step 3: Appoint Certified Specialist Stylist (Click card to select or View Portfolio)
+                          </label>
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                           {filteredStylists.map(sty => (
-                            <button
-                              id={`client-stylist-btn-${sty.id}`}
+                            <div
+                              id={`client-stylist-card-${sty.id}`}
                               key={sty.id}
-                              type="button"
-                              onClick={() => setBookingStylistId(sty.id)}
-                              className={`p-3 rounded-lg text-left border transition relative flex items-start gap-3 ${
+                              className={`p-3.5 rounded-lg border transition relative flex flex-col justify-between space-y-3 ${
                                 bookingStylistId === sty.id 
                                   ? 'bg-[#1c1c1f] border-[#c5a059] shadow-md' 
                                   : 'bg-[#a0a0b]/10 border-[#2a2a2d] hover:border-stone-500'
                               }`}
                             >
-                              <img 
-                                src={sty.imageUrl} 
-                                alt={sty.name} 
-                                className="w-10 h-10 rounded-full object-cover border border-[#2a2a2d] shrink-0" 
-                              />
-                              <div>
-                                <h5 className="text-xs font-semibold text-white leading-tight">{sty.name}</h5>
-                                <p className="text-[9px] text-[#c5a059] font-serif italic mt-0.5">{sty.rating} ★ Rating</p>
-                                <p className="text-[10px] text-stone-500 mt-1 pb-1 line-clamp-2 leading-snug">{sty.bio}</p>
+                              <div 
+                                className="flex items-start gap-3 cursor-pointer"
+                                onClick={() => setBookingStylistId(sty.id)}
+                              >
+                                <img 
+                                  src={sty.imageUrl} 
+                                  alt={sty.name} 
+                                  className="w-10 h-10 rounded-full object-cover border border-[#2a2a2d] shrink-0" 
+                                />
+                                <div>
+                                  <h5 className="text-xs font-semibold text-white leading-tight">{sty.name}</h5>
+                                  <p className="text-[9px] text-[#c5a059] font-serif italic mt-0.5">{sty.rating} ★ Rating</p>
+                                  <p className="text-[10px] text-stone-500 mt-1 line-clamp-2 leading-snug">{sty.bio}</p>
+                                </div>
                               </div>
+
+                              <div className="pt-2 border-t border-[#2a2a2d] flex items-center justify-between gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedPortfolioStylist(sty)}
+                                  className="text-[9px] font-mono font-bold uppercase text-[#c5a059] bg-[#c5a059]/10 border border-[#c5a059]/30 hover:bg-[#c5a059] hover:text-black px-2.5 py-1 rounded transition cursor-pointer"
+                                >
+                                  📸 View Portfolio
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setBookingStylistId(sty.id)}
+                                  className={`text-[9px] font-mono font-bold uppercase px-2.5 py-1 rounded transition cursor-pointer ${
+                                    bookingStylistId === sty.id 
+                                      ? 'bg-emerald-500 text-black' 
+                                      : 'bg-stone-800 text-stone-300 hover:text-white'
+                                  }`}
+                                >
+                                  {bookingStylistId === sty.id ? '✓ Selected' : 'Select'}
+                                </button>
+                              </div>
+
                               {bookingStylistId === sty.id && (
                                 <span className="absolute top-2 right-2 p-0.5 rounded-full bg-[#c5a059]/20 border border-[#c5a059] text-[#c5a059]">
                                   <Check size={10} />
                                 </span>
                               )}
-                            </button>
+                            </div>
                           ))}
                         </div>
                       </div>
+
+                      {/* Stylist Portfolio Modal */}
+                      {selectedPortfolioStylist && (
+                        <StylistPortfolioModal
+                          stylist={selectedPortfolioStylist}
+                          onClose={() => setSelectedPortfolioStylist(null)}
+                          onSelectStylist={(id) => setBookingStylistId(id)}
+                          isSelected={bookingStylistId === selectedPortfolioStylist.id}
+                        />
+                      )}
 
                       {/* Date & Time parameters */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
